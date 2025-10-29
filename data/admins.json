@@ -1,0 +1,49 @@
+{
+    "admins": [],
+    "roles": {
+        "owner": {
+            "name": "Owner",
+            "permissions": ["*"],
+            "description": "Full access to all bot features"
+        },
+        "admin": {
+            "name": "Administrator",
+            "permissions": [
+                "manage_admins",
+                "manage_players",
+                "manage_teams",
+                "manage_tournaments",
+                "edit_scoring",
+                "approve_matches",
+                "delete_data",
+                "ban_users",
+                "view_logs"
+            ],
+            "description": "Full tournament management access"
+        },
+        "moderator": {
+            "name": "Moderator",
+            "permissions": [
+                "manage_players",
+                "manage_teams",
+                "approve_matches",
+                "view_logs"
+            ],
+            "description": "Can manage players, teams, and approve matches"
+        },
+        "stats_manager": {
+            "name": "Stats Manager",
+            "permissions": [
+                "edit_scoring",
+                "approve_matches",
+                "manage_players"
+            ],
+            "description": "Can manage scoring and approve match results"
+        }
+    },
+    "settings": {
+        "require_approval_for_matches": false,
+        "log_admin_actions": true,
+        "owner_discord_id": null
+    }
+}

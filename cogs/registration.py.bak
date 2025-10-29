@@ -1,0 +1,303 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+import os
+from pathlib import Path
+from services import db
+
+class Registration(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.data_dir = Path(__file__).parent.parent / "data"  # Keep for other files if needed
+    
+    def calculate_player_score(self, stats: dict):
+        """Calculate player leaderboard score based on scoring config"""
+        # Simplified scoring for now - can be made configurable later
+        weights = {
+            "kill_points": 100,
+            "assist_points": 50,
+            "death_penalty": -50,
+            "win_points": 500,
+            "participation_points": 100
+        }
+
+        kills = stats.get("kills", 0)
+        deaths = stats.get("deaths", 0)
+        assists = stats.get("assists", 0)
+        wins = stats.get("wins", 0)
+        matches = stats.get("matches_played", 0)
+        
+        # Check minimum matches requirement
+        if matches < 3:  # Minimum 3 matches to be ranked
+            return 0
+        
+        # Base score calculation
+        score = (
+            kills * weights["kill_points"] +
+            assists * weights["assist_points"] +
+            deaths * weights["death_penalty"] +
+            wins * weights["win_points"] +
+            matches * weights["participation_points"]
+        )
+        
+        return max(0, score)  # Never return negative score
+    
+    async def update_nickname(self, member: discord.Member, ign: str, player_data: dict):
+        """Update member's nickname to show points and IGN"""
+        try:
+            points = self.calculate_player_score(player_data)
+            new_nickname = f"[{int(points)}] {ign}"
+            
+            # Discord nickname limit is 32 characters
+            if len(new_nickname) > 32:
+                # Truncate IGN if needed
+                max_ign_length = 32 - len(f"[{int(points)}] ")
+                truncated_ign = ign[:max_ign_length]
+                new_nickname = f"[{int(points)}] {truncated_ign}"
+            
+            await member.edit(nick=new_nickname)
+            return True
+        except discord.Forbidden:
+            # Bot doesn't have permission to change nickname
+            return False
+        except Exception as e:
+            print(f"Error updating nickname: {e}")
+            return False
+
+    @app_commands.command(name="register", description="Register for the Valorant Mobile tournament")
+    @app_commands.describe(ign="Your in-game name", id="Your numeric in-game ID", region="The region you play in")
+    @app_commands.choices(region=[
+        app_commands.Choice(name="Asia", value="asia"),
+        app_commands.Choice(name="Europe", value="europe"),
+        app_commands.Choice(name="Americas", value="americas"),
+    ])
+    async def register(self, interaction: discord.Interaction, ign: str, id: int, region: app_commands.Choice[str]):
+        """Register for the tournament with your IGN, numeric ID, and region."""
+        # Check if already registered
+        existing_player = await db.get_player(interaction.user.id)
+        if existing_player:
+            await interaction.response.send_message(
+                "You are already registered!",
+                ephemeral=True
+            )
+            return
+
+        # Check if IGN exists
+        existing_ign = await db.get_player_by_ign(ign)
+        if existing_ign:
+            embed = discord.Embed(
+                title="❌ Registration Failed",
+                description=f"The IGN **{ign}** is already registered!",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="Why?",
+                value=f"IGN matching is case-insensitive.\n"
+                      f"Your IGN: `{ign}`\n"
+                      f"Existing IGN: `{existing_ign['ign']}`\n"
+                      f"These are considered the same.",
+                inline=False
+            )
+            embed.add_field(
+                name="Solution",
+                value="Please choose a different in-game name.",
+                inline=False
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        try:
+            # Create new player in database
+            player = await db.create_player(
+                discord_id=interaction.user.id,
+                ign=ign,
+                player_id=id,
+                region=region.value
+            )
+
+            # Initialize empty stats
+            initial_stats = {
+                "kills": 0,
+                "deaths": 0,
+                "assists": 0,
+                "matches_played": 0,
+                "wins": 0,
+                "losses": 0,
+                "mvps": 0
+            }
+            
+            # Create initial player stats
+            await db.create_player_stats(interaction.user.id, initial_stats)
+
+            # Update nickname to show points
+            nickname_updated = await self.update_nickname(interaction.user, ign, initial_stats)
+
+            embed = discord.Embed(
+                title="✅ Registration Successful!",
+                description=f"Welcome to the tournament, {interaction.user.mention}!",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="IGN", value=ign, inline=True)
+            embed.add_field(name="ID", value=str(id), inline=True)
+            embed.add_field(name="Region", value=region.name, inline=True)
+            embed.add_field(name="Starting Points", value="0 (play matches to earn points!)", inline=False)
+            
+            if nickname_updated:
+                embed.add_field(name="🏷️ Nickname", value=f"Your server nickname has been updated to `[0] {ign}`", inline=False)
+            else:
+                embed.add_field(name="⚠️ Note", value="Couldn't update your nickname automatically. You can update it manually or ask an admin.", inline=False)
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            print(f"Registration error: {e}")
+            await interaction.response.send_message(
+                "❌ An error occurred during registration. Please try again or contact an admin.",
+                ephemeral=True
+            )
+
+    @app_commands.command(name="update_ign", description="Update your in-game name")
+    @app_commands.describe(new_ign="Your new in-game name")
+    async def update_ign(self, interaction: discord.Interaction, new_ign: str):
+        """Update your in-game name."""
+        players_file = 'data/players.json'
+        player_found = False
+        
+        # Read player data
+        players = []
+        if os.path.exists(players_file):
+            try:
+                with open(players_file, 'r') as f:
+                    content = f.read()
+                    if content:
+                        players_data = json.loads(content)
+                        if isinstance(players_data, list):
+                            players = players_data
+            except json.JSONDecodeError:
+                await interaction.response.send_message("Error reading player data file.", ephemeral=True)
+                return
+        
+        # Check if new IGN is already taken (case-insensitive)
+        new_ign_lower = new_ign.lower()
+        for player in players:
+            # Skip the current user's entry
+            if player.get('discord_id') == interaction.user.id:
+                continue
+            
+            existing_ign = player.get('ign', '')
+            if existing_ign.lower() == new_ign_lower:
+                embed = discord.Embed(
+                    title="❌ IGN Update Failed",
+                    description=f"The IGN **{existing_ign}** is already registered by another player!",
+                    color=discord.Color.red()
+                )
+                embed.add_field(
+                    name="Why?",
+                    value=f"IGN matching is case-insensitive.\n"
+                          f"Your new IGN: `{new_ign}`\n"
+                          f"Existing IGN: `{existing_ign}`\n"
+                          f"These are considered the same.",
+                    inline=False
+                )
+                embed.add_field(
+                    name="Solution",
+                    value="Please choose a different in-game name.",
+                    inline=False
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+
+        # Find player and update IGN
+        old_ign = None
+        updated_player = None
+        for player in players:
+            if player.get('discord_id') == interaction.user.id:
+                old_ign = player['ign']
+                player['ign'] = new_ign
+                updated_player = player
+                player_found = True
+                break
+
+        if not player_found:
+            await interaction.response.send_message("You are not registered yet. Please use /register first.", ephemeral=True)
+            return
+
+        # Write updated player data
+        with open(players_file, 'w') as f:
+            json.dump(players, f, indent=4)
+
+        # Update nickname to reflect new IGN
+        nickname_updated = await self.update_nickname(interaction.user, new_ign, updated_player)
+        
+        embed = discord.Embed(
+            title="✅ IGN Updated!",
+            description=f"Your in-game name has been successfully updated.",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="Old IGN", value=f"`{old_ign}`", inline=True)
+        embed.add_field(name="New IGN", value=f"**{new_ign}**", inline=True)
+        
+        if nickname_updated:
+            points = self.calculate_player_score(updated_player)
+            embed.add_field(name="🏷️ Nickname", value=f"Your server nickname has been updated to `[{int(points)}] {new_ign}`", inline=False)
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="refresh-nickname", description="Refresh your server nickname to show current points")
+    async def refresh_nickname(self, interaction: discord.Interaction):
+        """Refresh nickname to show current leaderboard points"""
+        players_file = 'data/players.json'
+        
+        # Read player data
+        players = []
+        if os.path.exists(players_file):
+            try:
+                with open(players_file, 'r') as f:
+                    content = f.read()
+                    if content:
+                        players_data = json.loads(content)
+                        if isinstance(players_data, list):
+                            players = players_data
+            except json.JSONDecodeError:
+                await interaction.response.send_message("Error reading player data file.", ephemeral=True)
+                return
+        
+        # Find player
+        player_data = None
+        for player in players:
+            if player.get('discord_id') == interaction.user.id:
+                player_data = player
+                break
+        
+        if not player_data:
+            await interaction.response.send_message("You are not registered yet. Please use /register first.", ephemeral=True)
+            return
+        
+        # Update nickname
+        ign = player_data.get('ign')
+        points = self.calculate_player_score(player_data)
+        nickname_updated = await self.update_nickname(interaction.user, ign, player_data)
+        
+        if nickname_updated:
+            embed = discord.Embed(
+                title="✅ Nickname Refreshed!",
+                description=f"Your server nickname has been updated.",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="New Nickname", value=f"`[{int(points)}] {ign}`", inline=False)
+            embed.add_field(name="Current Points", value=f"**{points}**", inline=True)
+            
+            stats = player_data.get("stats", {}).get("1", {})
+            matches = stats.get("matches_played", 0)
+            if matches > 0:
+                embed.add_field(name="Matches Played", value=str(matches), inline=True)
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                f"❌ Couldn't update your nickname. The bot needs `Manage Nicknames` permission, or you might have a higher role than the bot.",
+                ephemeral=True
+            )
+
+async def setup(bot):
+    await bot.add_cog(Registration(bot))

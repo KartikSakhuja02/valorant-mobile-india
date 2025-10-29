@@ -1,0 +1,295 @@
+[
+    {
+        "id": 1,
+        "timestamp": "2025-10-12T17:51:16.887953",
+        "user_id": 581466766815920130,
+        "username": "ayas27",
+        "action": "edit_player",
+        "details": "Edited ayas27 - IGN: Remz.Zr → remz.zr",
+        "old_data": {
+            "discord_id": 581466766815920130,
+            "ign": "Remz.Zr",
+            "id": 234242,
+            "region": "europe",
+            "stats": {
+                "1": {
+                    "kills": 162,
+                    "deaths": 150,
+                    "assists": 110,
+                    "matches_played": 11,
+                    "wins": 11,
+                    "losses": 0
+                }
+            }
+        }
+    },
+    {
+        "id": 2,
+        "timestamp": "2025-10-12T17:52:28.937384",
+        "user_id": 581466766815920130,
+        "username": "ayas27",
+        "action": "edit_kda",
+        "details": "Edited ayas27 K/D/A: 162/150/110 → 0/0/0",
+        "old_data": {
+            "kills": 162,
+            "deaths": 150,
+            "assists": 110,
+            "matches_played": 11,
+            "wins": 11,
+            "losses": 0
+        }
+    },
+    {
+        "id": 3,
+        "timestamp": "2025-10-12T17:53:47.079875",
+        "user_id": 581466766815920130,
+        "username": "ayas27",
+        "action": "export_data",
+        "details": "Exported data to tournament_data_20251012_175345.xlsx (include_banned=False)"
+    },
+    {
+        "id": 4,
+        "timestamp": "2025-10-12T19:12:59.501224",
+        "user_id": 581466766815920130,
+        "username": "ayas27",
+        "action": "recalculate_leaderboards",
+        "details": "Triggered leaderboard recalculation"
+    },
+    {
+        "id": 5,
+        "timestamp": "2025-10-13T15:54:34.170268",
+        "user_id": 581466766815920130,
+        "username": "ayas27",
+        "action": "edit_player",
+        "details": "Edited ayas4.0 - IGN: Zainis7 → zanIS7",
+        "old_data": {
+            "discord_id": 1414320287763271820,
+            "ign": "Zainis7",
+            "id": 77777,
+            "region": "europe",
+            "stats": {
+                "1": {
+                    "kills": 0,
+                    "deaths": 0,
+                    "assists": 0,
+                    "matches_played": 0,
+                    "wins": 0,
+                    "losses": 0
+                }
+            }
+        }
+    },
+    {
+        "id": 6,
+        "timestamp": "2025-10-13T20:48:40.894239",
+        "user_id": 581466766815920130,
+        "username": "ayas27",
+        "action": "export_data",
+        "details": "Exported data to tournament_data_20251013_204839.xlsx (include_banned=False)"
+    },
+    {
+        "id": 7,
+        "timestamp": "2025-10-13T20:49:14.765637",
+        "user_id": 588338392853643269,
+        "username": "4space_gg",
+        "action": "export_data",
+        "details": "Exported data to tournament_data_20251013_204914.xlsx (include_banned=True)"
+    },
+    {
+        "id": 8,
+        "timestamp": "2025-10-17T16:27:56.368338",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_kda",
+        "details": "Edited darkwiz._ K/D/A: 0/0/0 → 10/2/3",
+        "old_data": {
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 9,
+        "timestamp": "2025-10-17T16:29:54.835761",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_kda",
+        "details": "Edited darkwiz._ K/D/A: 10/2/3 → 4/1/2",
+        "old_data": {
+            "kills": 10,
+            "deaths": 2,
+            "assists": 3,
+            "matches_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 10,
+        "timestamp": "2025-10-17T16:30:10.805537",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_record",
+        "details": "Edited darkwiz._ record: 0W-0L → 5W-5L",
+        "old_data": {
+            "kills": 4,
+            "deaths": 1,
+            "assists": 2,
+            "matches_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 11,
+        "timestamp": "2025-10-17T21:02:58.273490",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_record",
+        "details": "Edited darkwiz._ record: 0W-0L → 1W-1L",
+        "old_data": {
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 12,
+        "timestamp": "2025-10-18T16:28:32.301606",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_record",
+        "details": "Edited darkwiz._ record: 0W-0L → 2W-3L",
+        "old_data": {
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 13,
+        "timestamp": "2025-10-18T16:40:45.536648",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_kda",
+        "details": "Edited darkwiz._ K/D/A: 0/0/0 → 12/5/1",
+        "old_data": {
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 5,
+            "wins": 2,
+            "losses": 3,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 14,
+        "timestamp": "2025-10-19T16:31:50.107870",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_record",
+        "details": "Edited darkwiz._ record: 0W-0L → 3W-2L",
+        "old_data": {
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 15,
+        "timestamp": "2025-10-19T16:33:03.220185",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_record",
+        "details": "Edited darkwiz._ record: 3W-2L → 2W-1L",
+        "old_data": {
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 5,
+            "wins": 3,
+            "losses": 2,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 16,
+        "timestamp": "2025-10-19T16:38:34.008172",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_record",
+        "details": "Edited darkwiz._ record: 2W-1L → 3W-2L",
+        "old_data": {
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 3,
+            "wins": 2,
+            "losses": 1,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 17,
+        "timestamp": "2025-10-22T14:00:35.858396",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_player",
+        "details": "Edited darkwiz._ - IGN: DarkWiz.Zr → DarkWizz.Zr",
+        "old_data": {
+            "id": 12,
+            "discord_id": 449843894788816898,
+            "ign": "DarkWiz.Zr",
+            "player_id": 124,
+            "region": "ap",
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "mvps": 0
+        }
+    },
+    {
+        "id": 18,
+        "timestamp": "2025-10-22T14:00:54.648911",
+        "user_id": 449843894788816898,
+        "username": "darkwiz._",
+        "action": "edit_player",
+        "details": "Edited darkwiz._ - IGN: DarkWizz.Zr → DarkWizz.Zr",
+        "old_data": {
+            "id": 12,
+            "discord_id": 449843894788816898,
+            "ign": "DarkWizz.Zr",
+            "player_id": 124,
+            "region": "ap",
+            "kills": 0,
+            "deaths": 0,
+            "assists": 0,
+            "matches_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "mvps": 0
+        }
+    }
+]

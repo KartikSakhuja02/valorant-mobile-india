@@ -1,0 +1,48 @@
+{
+  "confusion_pairs": [
+    {
+      "agents": ["Raze", "Skye"],
+      "note": "Raze has ORANGE CAP + brown skin + orange theme. Skye has GREEN HEADBAND + green nature theme. Look for ORANGE vs GREEN."
+    },
+    {
+      "agents": ["Raze", "Reyna"],
+      "note": "Raze has ORANGE CAP + orange theme. Reyna has PURPLE HAIR + purple glowing eyes + purple theme. Look for ORANGE vs PURPLE."
+    },
+    {
+      "agents": ["Viper", "Phoenix"],
+      "note": "Viper has GREEN GAS MASK covering entire face + green theme. Phoenix has dreadlocks + dark skin visible + orange/red theme. Look for MASK vs FACE."
+    },
+    {
+      "agents": ["Jett", "Cypher"],
+      "note": "Jett has WHITE HAIR topknot + visible Asian face. Cypher has WHITE HAT + BLACK MASK hiding face + cyan lenses. Look for FACE vs MASK."
+    },
+    {
+      "agents": ["Phoenix", "Brimstone"],
+      "note": "Phoenix has BLACK DREADLOCKS + dark brown skin. Brimstone has ORANGE BERET + beard + lighter skin. Look for DREADLOCKS vs BERET."
+    },
+    {
+      "agents": ["Jett", "Sage"],
+      "note": "Jett has SHORT WHITE HAIR in topknot. Sage has LONG BLACK HAIR in ponytail. Look for WHITE vs BLACK hair."
+    },
+    {
+      "agents": ["KAY/O", "Breach"],
+      "note": "KAY/O has BLUE LED SCREEN for face - robot head. Breach has BROWN HAIR + BEARD - human face. Look for ROBOT vs HUMAN."
+    },
+    {
+      "agents": ["Cypher", "Omen"],
+      "note": "Cypher has WHITE HAT + CYAN GLOWING LENSES. Omen has GREY HOOD + THREE BLUE SLITS + very dark/shadowy. Look for HAT vs HOOD."
+    },
+    {
+      "agents": ["Neon", "Yoru"],
+      "note": "Neon has BRIGHT BLUE PIGTAILS + bandage on nose. Yoru has BLUE SPIKY HAIR. Look for PIGTAILS vs SPIKY."
+    },
+    {
+      "agents": ["Chamber", "Iso"],
+      "note": "Chamber has glasses + brown hair + gold/brown suit. Iso has PURPLE VISOR over eyes + purple theme. Look for GLASSES vs VISOR."
+    },
+    {
+      "agents": ["Breach", "Brimstone"],
+      "note": "Breach has LONG BROWN HAIR + full beard + very muscular. Brimstone has ORANGE BERET + short beard + bald. Look for HAIR vs BERET."
+    }
+  ]
+}

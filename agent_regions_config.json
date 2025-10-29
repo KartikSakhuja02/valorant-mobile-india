@@ -1,0 +1,78 @@
+{
+  "image_size": {
+    "width": 3168,
+    "height": 1440
+  },
+  "regions": [
+    {
+      "slot": 0,
+      "x": 483,
+      "y": 383,
+      "width": 86,
+      "height": 86
+    },
+    {
+      "slot": 1,
+      "x": 480,
+      "y": 474,
+      "width": 93,
+      "height": 88
+    },
+    {
+      "slot": 2,
+      "x": 485,
+      "y": 569,
+      "width": 81,
+      "height": 84
+    },
+    {
+      "slot": 3,
+      "x": 480,
+      "y": 668,
+      "width": 95,
+      "height": 86
+    },
+    {
+      "slot": 4,
+      "x": 478,
+      "y": 763,
+      "width": 91,
+      "height": 81
+    },
+    {
+      "slot": 5,
+      "x": 480,
+      "y": 855,
+      "width": 91,
+      "height": 80
+    },
+    {
+      "slot": 6,
+      "x": 480,
+      "y": 950,
+      "width": 89,
+      "height": 86
+    },
+    {
+      "slot": 7,
+      "x": 480,
+      "y": 1043,
+      "width": 89,
+      "height": 88
+    },
+    {
+      "slot": 8,
+      "x": 480,
+      "y": 1138,
+      "width": 89,
+      "height": 79
+    },
+    {
+      "slot": 9,
+      "x": 480,
+      "y": 1235,
+      "width": 91,
+      "height": 86
+    }
+  ]
+}

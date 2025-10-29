@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Valorant Agent Template Cropper</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .progress {
+            background: #f0f0f0;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .progress-bar {
+            background: #667eea;
+            height: 30px;
+            border-radius: 5px;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .upload-area:hover {
+            background: #f8f9ff;
+            border-color: #764ba2;
+        }
+
+        .upload-area.dragover {
+            background: #e0e7ff;
+            border-color: #4338ca;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .agent-select {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        select, input[type="text"] {
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            width: 100%;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .canvas-container {
+            position: relative;
+            margin: 20px 0;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+            display: none;
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+            max-width: 100%;
+            cursor: crosshair;
+        }
+
+        .instructions {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .instructions h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .instructions ol {
+            margin-left: 20px;
+            color: #856404;
+        }
+
+        .templates-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 15px;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .template-item {
+            text-align: center;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .template-item img {
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 8px;
+        }
+
+        .template-item span {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            font-weight: bold;
+        }
+
+        .crop-preview {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 5px 25px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: none;
+        }
+
+        .crop-preview h4 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .crop-preview canvas {
+            border: 2px solid #667eea;
+            border-radius: 5px;
+        }
+
+        .missing-agents {
+            background: #f8d7da;
+            border: 2px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .missing-agents h3 {
+            color: #721c24;
+            margin-bottom: 10px;
+        }
+
+        .missing-agents .agent-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .missing-agents .agent-tag {
+            background: #fff;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success-message {
+            background: #d4edda;
+            border: 2px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Valorant Agent Template Cropper</h1>
+        <p class="subtitle">Click and drag to crop agent icons from screenshots</p>
+
+        <div class="progress">
+            <div class="progress-bar" id="progressBar" style="width: 0%">0 / 25 Agents</div>
+        </div>
+
+        <div class="instructions">
+            <h3>📖 How to Use:</h3>
+            <ol>
+                <li>Upload a Valorant scoreboard screenshot</li>
+                <li>Click and drag to select an agent icon</li>
+                <li>Select the agent name from dropdown</li>
+                <li>Click "Save Template" to download</li>
+                <li>Repeat for all 25 agents</li>
+            </ol>
+        </div>
+
+        <div class="controls">
+            <div class="upload-area" id="uploadArea">
+                <h3>📁 Click or Drag Screenshot Here</h3>
+                <p>Supports PNG, JPG, JPEG</p>
+                <input type="file" id="fileInput" accept="image/*">
+            </div>
+
+            <div class="agent-select">
+                <label for="agentSelect"><strong>Select Agent:</strong></label>
+                <select id="agentSelect">
+                    <option value="">-- Choose Agent --</option>
+                </select>
+                
+                <button id="saveBtn" disabled>💾 Save Template</button>
+                <button id="resetBtn">🔄 Reset Selection</button>
+                <button id="nextBtn">⏭️ Next Screenshot</button>
+            </div>
+        </div>
+
+        <div class="canvas-container" id="canvasContainer">
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="crop-preview" id="cropPreview">
+            <h4>Preview:</h4>
+            <canvas id="previewCanvas" width="120" height="120"></canvas>
+        </div>
+
+        <div class="success-message" id="successMessage">
+            ✅ Template saved! Check your Downloads folder.
+        </div>
+
+        <div class="missing-agents" id="missingAgents">
+            <h3>📝 Missing Agents:</h3>
+            <div class="agent-list" id="missingAgentsList"></div>
+        </div>
+
+        <div class="templates-grid" id="templatesGrid">
+            <p style="grid-column: 1/-1; text-align: center; color: #666;">
+                Saved templates will appear here
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const ALL_AGENTS = [
+            'astra', 'breach', 'brimstone', 'chamber', 'clove',
+            'cypher', 'deadlock', 'fade', 'gekko', 'harbor',
+            'iso', 'jett', 'kayo', 'killjoy', 'neon',
+            'omen', 'phoenix', 'raze', 'reyna', 'sage',
+            'skye', 'sova', 'viper', 'vyse', 'yoru'
+        ];
+
+        let savedAgents = new Set();
+        let canvas, ctx, previewCanvas, previewCtx;
+        let img = new Image();
+        let isDrawing = false;
+        let startX, startY, endX, endY;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+            previewCanvas = document.getElementById('previewCanvas');
+            previewCtx = previewCanvas.getContext('2d');
+
+            // Populate agent dropdown
+            const select = document.getElementById('agentSelect');
+            ALL_AGENTS.forEach(agent => {
+                const option = document.createElement('option');
+                option.value = agent;
+                option.textContent = agent.charAt(0).toUpperCase() + agent.slice(1);
+                select.appendChild(option);
+            });
+
+            // Load saved agents from localStorage
+            const saved = localStorage.getItem('savedAgents');
+            if (saved) {
+                savedAgents = new Set(JSON.parse(saved));
+                updateProgress();
+                updateMissingAgents();
+            }
+
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+
+            // Upload area click
+            uploadArea.addEventListener('click', () => fileInput.click());
+
+            // Drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file) loadImage(file);
+            });
+
+            // File input change
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) loadImage(file);
+            });
+
+            // Canvas mouse events
+            canvas.addEventListener('mousedown', startCrop);
+            canvas.addEventListener('mousemove', drawCrop);
+            canvas.addEventListener('mouseup', endCrop);
+
+            // Buttons
+            document.getElementById('saveBtn').addEventListener('click', saveTemplate);
+            document.getElementById('resetBtn').addEventListener('click', resetSelection);
+            document.getElementById('nextBtn').addEventListener('click', () => {
+                fileInput.click();
+            });
+        }
+
+        function loadImage(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                img.onload = () => {
+                    // Resize canvas to fit image (max 1920x1080)
+                    const maxWidth = 1920;
+                    const maxHeight = 1080;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxWidth) {
+                        height = (height * maxWidth) / width;
+                        width = maxWidth;
+                    }
+                    if (height > maxHeight) {
+                        width = (width * maxHeight) / height;
+                        height = maxHeight;
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    ctx.drawImage(img, 0, 0, width, height);
+                    document.getElementById('canvasContainer').style.display = 'block';
+                    resetSelection();
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function startCrop(e) {
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+        }
+
+        function drawCrop(e) {
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            endX = e.clientX - rect.left;
+            endY = e.clientY - rect.top;
+
+            // Redraw image
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // Draw selection rectangle
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(startX, startY, endX - startX, endY - startY);
+        }
+
+        function endCrop(e) {
+            if (!isDrawing) return;
+            isDrawing = false;
+
+            const rect = canvas.getBoundingClientRect();
+            endX = e.clientX - rect.left;
+            endY = e.clientY - rect.top;
+
+            // Ensure correct order
+            const x1 = Math.min(startX, endX);
+            const y1 = Math.min(startY, endY);
+            const x2 = Math.max(startX, endX);
+            const y2 = Math.max(startY, endY);
+
+            startX = x1;
+            startY = y1;
+            endX = x2;
+            endY = y2;
+
+            // Draw final rectangle
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(startX, startY, endX - startX, endY - startY);
+
+            // Show preview
+            updatePreview();
+            document.getElementById('saveBtn').disabled = false;
+        }
+
+        function updatePreview() {
+            const width = endX - startX;
+            const height = endY - startY;
+
+            if (width > 0 && height > 0) {
+                // Scale to original image size
+                const scaleX = img.width / canvas.width;
+                const scaleY = img.height / canvas.height;
+
+                const cropX = startX * scaleX;
+                const cropY = startY * scaleY;
+                const cropW = width * scaleX;
+                const cropH = height * scaleY;
+
+                // Draw preview
+                previewCtx.clearRect(0, 0, 120, 120);
+                previewCtx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, 120, 120);
+
+                document.getElementById('cropPreview').style.display = 'block';
+            }
+        }
+
+        function saveTemplate() {
+            const agentName = document.getElementById('agentSelect').value;
+            if (!agentName) {
+                alert('Please select an agent name!');
+                return;
+            }
+
+            const width = endX - startX;
+            const height = endY - startY;
+
+            if (width <= 0 || height <= 0) {
+                alert('Please select an area first!');
+                return;
+            }
+
+            // Scale to original image size
+            const scaleX = img.width / canvas.width;
+            const scaleY = img.height / canvas.height;
+
+            const cropX = startX * scaleX;
+            const cropY = startY * scaleY;
+            const cropW = width * scaleX;
+            const cropH = height * scaleY;
+
+            // Create temporary canvas for cropped image
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = cropW;
+            tempCanvas.height = cropH;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+            // Convert to blob and download
+            tempCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${agentName}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                // Save to localStorage
+                savedAgents.add(agentName);
+                localStorage.setItem('savedAgents', JSON.stringify([...savedAgents]));
+
+                // Update UI
+                updateProgress();
+                updateMissingAgents();
+                showSuccessMessage();
+                resetSelection();
+
+                // Auto-select next missing agent
+                autoSelectNextAgent();
+            });
+        }
+
+        function resetSelection() {
+            startX = startY = endX = endY = 0;
+            if (img.src) {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            }
+            document.getElementById('cropPreview').style.display = 'none';
+            document.getElementById('saveBtn').disabled = true;
+        }
+
+        function updateProgress() {
+            const count = savedAgents.size;
+            const percentage = (count / 25) * 100;
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = percentage + '%';
+            progressBar.textContent = `${count} / 25 Agents`;
+        }
+
+        function updateMissingAgents() {
+            const missing = ALL_AGENTS.filter(a => !savedAgents.has(a));
+            const list = document.getElementById('missingAgentsList');
+            list.innerHTML = '';
+
+            if (missing.length === 0) {
+                list.innerHTML = '<div style="grid-column: 1/-1; color: green; font-weight: bold;">🎉 All agents complete!</div>';
+            } else {
+                missing.forEach(agent => {
+                    const tag = document.createElement('span');
+                    tag.className = 'agent-tag';
+                    tag.textContent = agent.charAt(0).toUpperCase() + agent.slice(1);
+                    list.appendChild(tag);
+                });
+            }
+        }
+
+        function autoSelectNextAgent() {
+            const missing = ALL_AGENTS.filter(a => !savedAgents.has(a));
+            if (missing.length > 0) {
+                document.getElementById('agentSelect').value = missing[0];
+            }
+        }
+
+        function showSuccessMessage() {
+            const msg = document.getElementById('successMessage');
+            msg.style.display = 'block';
+            setTimeout(() => {
+                msg.style.display = 'none';
+            }, 3000);
+        }
+
+        // Auto-select first missing agent on load
+        window.addEventListener('load', () => {
+            autoSelectNextAgent();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+discord.py
+requests
+Pillow
+pytesseract
+opencv-python
+numpy
+aiohttp
+python-dotenv
+asyncpg
+google-generativeai
+ultralytics>=8.0.0

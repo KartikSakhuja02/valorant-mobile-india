@@ -1,0 +1,39 @@
+{
+    "player_scoring": {
+        "description": "How player leaderboard points are calculated",
+        "formula_explanation": "Points = (kills × kill_points) + (assists × assist_points) - (deaths × death_penalty) + (wins × win_points) + (matches_played × participation_points)",
+        "weights": {
+            "kill_points": 1.0,
+            "assist_points": 0.5,
+            "death_penalty": 0.5,
+            "win_points": 10.0,
+            "participation_points": 1.0
+        },
+        "bonus_multipliers": {
+            "kd_ratio_above_1.5": 1.1,
+            "kd_ratio_above_2.0": 1.2,
+            "win_rate_above_60": 1.05,
+            "win_rate_above_75": 1.15
+        }
+    },
+    "team_scoring": {
+        "description": "How team leaderboard points are calculated",
+        "formula_explanation": "Points = (wins × win_points) - (losses × loss_penalty) + (total_matches × participation_points)",
+        "weights": {
+            "win_points": 25.0,
+            "loss_penalty": 5.0,
+            "participation_points": 2.0
+        },
+        "bonus_multipliers": {
+            "win_rate_above_60": 1.1,
+            "win_rate_above_75": 1.2,
+            "win_rate_above_85": 1.3
+        }
+    },
+    "leaderboard_settings": {
+        "max_display_entries": 15,
+        "min_matches_for_ranking": 1,
+        "update_interval_seconds": 300,
+        "show_stats_in_leaderboard": true
+    }
+}
