@@ -2036,8 +2036,8 @@ class Scrim(commands.Cog):
             await db.update_scrim_request_status(match['request_id_1'], 'pending')
             await db.update_scrim_request_status(match['request_id_2'], 'pending')
             
-            # Add to avoid list for 24 hours
-            await db.add_to_avoid_list(captain_1_id, captain_2_id, hours=24)
+            # Add to avoid list for 6 hours
+            await db.add_to_avoid_list(captain_1_id, captain_2_id, hours=6)
             
             # Notify both captains
             captain_1 = await self.bot.fetch_user(captain_1_id)
@@ -2048,7 +2048,7 @@ class Scrim(commands.Cog):
                 f"Both captains agreed to cancel the scrim.\n\n"
                 f"✅ **Your request is back in the queue!**\n"
                 f"You'll automatically be matched with other teams when they post LFS requests.\n\n"
-                f"⏰ You won't be matched with **each other** for the next 24 hours.\n\n"
+                f"⏰ You won't be matched with **each other** for the next 6 hours.\n\n"
                 f"Waiting for new opponents..."
             )
             

@@ -1,0 +1,19 @@
+# Core Discord Bot
+discord.py>=2.6.4
+requests>=2.32.0
+
+# Image Processing (lighter versions)
+Pillow>=12.0.0
+pytesseract>=0.3.13
+opencv-python-headless>=4.12.0  # Use headless version (smaller)
+numpy>=2.2.0
+
+# Async and Network
+aiohttp>=3.13.0
+python-dotenv>=1.2.0
+
+# Database
+asyncpg>=0.31.0
+
+# AI/ML (Gemini only - skip YOLO on Pi)
+google-generativeai>=0.8.5
