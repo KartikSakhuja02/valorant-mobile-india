@@ -2747,20 +2747,37 @@ class Scrim(commands.Cog):
         
         print(f"⚠️ Score dispute for match {match_id} by {disputer.display_name}")
     
-    @app_commands.command(name="cancel-scrim", description="Cancel your pending scrim request")
+    @app_commands.command(name="cancel-scrim", description="Cancel your pending scrim request or match")
     async def cancel_scrim(self, interaction: discord.Interaction):
-        """Cancel a pending scrim request"""
+        """Cancel a pending scrim request or match"""
         await interaction.response.defer(ephemeral=True)
         
         try:
             captain_id = interaction.user.id
+            cancelled_count = 0
             
-            # Get pending matches
+            # First, check for pending scrim REQUESTS (LFS posts in queue)
+            pending_requests = await db.get_pending_scrim_requests()
+            my_requests = [r for r in pending_requests if r['captain_discord_id'] == captain_id]
+            
+            if my_requests:
+                # Cancel all the user's pending requests
+                for request in my_requests:
+                    await db.cancel_scrim_request(request['id'])
+                    cancelled_count += 1
+                
+                await interaction.followup.send(
+                    f"✅ Cancelled {cancelled_count} pending scrim request(s) from the queue.",
+                    ephemeral=True
+                )
+                return
+            
+            # If no requests, check for pending MATCHES (waiting for approval)
             pending_matches = await db.get_captain_pending_matches(captain_id)
             
             if not pending_matches:
                 await interaction.followup.send(
-                    "❌ You don't have any pending scrim requests.",
+                    "❌ You don't have any pending scrim requests or matches to cancel.",
                     ephemeral=True
                 )
                 return
@@ -2768,9 +2785,10 @@ class Scrim(commands.Cog):
             # Cancel all pending matches
             for match in pending_matches:
                 await db.update_scrim_match_status(match['id'], 'declined')
+                cancelled_count += 1
             
             await interaction.followup.send(
-                f"✅ Cancelled {len(pending_matches)} pending scrim request(s).",
+                f"✅ Cancelled {cancelled_count} pending scrim match(es).",
                 ephemeral=True
             )
             
