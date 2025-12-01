@@ -15,21 +15,21 @@ FONT_DIR = BASE_DIR / 'imports' / 'font'
 
 # Font settings
 FONT_PATH = FONT_DIR / 'Lato-Bold.ttf'
-ROW_FONT_SIZE = 75
+ROW_FONT_SIZE = 28  # Updated for better alignment
 
 # Cache for loaded fonts to avoid reloading
 _FONT_CACHE = {}
 
 # Text Colors - Different colors for different elements
 RANK_COLOR = "#000000"      # Black for rank numbers
-TEAM_NAME_COLOR = "#ffff23" # Bright yellow for team names
-WINS_COLOR = "#ffff23"      # Bright yellow for wins
-LOSSES_COLOR = "#ffff23"    # Bright yellow for losses
-WINRATE_COLOR = "#ffff23"   # Bright yellow for winrate
-POINTS_COLOR = "#ffff23"    # Bright yellow for points
-KILLS_COLOR = "#ffff23"     # Bright yellow for kills
-DEATHS_COLOR = "#ffff23"    # Bright yellow for deaths
-ASSISTS_COLOR = "#ffff23"   # Bright yellow for assists
+TEAM_NAME_COLOR = "#fafafa" # Light gray for team names
+WINS_COLOR = "#ffffff"      # White for wins
+LOSSES_COLOR = "#ffffff"    # White for losses
+WINRATE_COLOR = "#ffffff"   # White for winrate
+POINTS_COLOR = "#ffffff"    # White for points
+KILLS_COLOR = "#ffffff"     # White for kills
+DEATHS_COLOR = "#ffffff"    # White for deaths
+ASSISTS_COLOR = "#ffffff"   # White for assists
 
 # Discord-style UI colors
 DISCORD_BG = (47, 49, 54)        # Dark background #2f3136
@@ -48,8 +48,77 @@ TEMPLATES = {
     'players': TEMPLATE_DIR / 'Individual_Leaderboard.jpg',
 }
 
-# APAC Configuration - Position data for all 15 rows
-APAC_CONFIG = {
+# India Configuration - Updated alignment from test_lb_alignment.py
+INDIA_CONFIG = {
+    'rows': [
+        # Row 1
+        {'rank': 1, 'rank_x': 190, 'rank_y': 240, 'team_name_x': 240, 'team_name_y': 236,
+         'wins_x': 540, 'wins_y': 236, 'losses_x': 667, 'losses_y': 236,
+         'winrate_x': 760, 'winrate_y': 236, 'points_x': 875, 'points_y': 236},
+        # Row 2
+        {'rank': 2, 'rank_x': 190, 'rank_y': 280, 'team_name_x': 240, 'team_name_y': 278,
+         'wins_x': 540, 'wins_y': 278, 'losses_x': 667, 'losses_y': 278,
+         'winrate_x': 760, 'winrate_y': 278, 'points_x': 875, 'points_y': 278},
+        # Row 3
+        {'rank': 3, 'rank_x': 190, 'rank_y': 320, 'team_name_x': 240, 'team_name_y': 318,
+         'wins_x': 540, 'wins_y': 318, 'losses_x': 667, 'losses_y': 318,
+         'winrate_x': 760, 'winrate_y': 318, 'points_x': 875, 'points_y': 318},
+        # Row 4
+        {'rank': 4, 'rank_x': 190, 'rank_y': 365, 'team_name_x': 240, 'team_name_y': 364,
+         'wins_x': 540, 'wins_y': 364, 'losses_x': 667, 'losses_y': 364,
+         'winrate_x': 760, 'winrate_y': 364, 'points_x': 875, 'points_y': 364},
+        # Row 5
+        {'rank': 5, 'rank_x': 190, 'rank_y': 405, 'team_name_x': 240, 'team_name_y': 404,
+         'wins_x': 540, 'wins_y': 404, 'losses_x': 667, 'losses_y': 404,
+         'winrate_x': 760, 'winrate_y': 404, 'points_x': 875, 'points_y': 404},
+        # Row 6
+        {'rank': 6, 'rank_x': 190, 'rank_y': 450, 'team_name_x': 240, 'team_name_y': 448,
+         'wins_x': 540, 'wins_y': 448, 'losses_x': 667, 'losses_y': 448,
+         'winrate_x': 760, 'winrate_y': 448, 'points_x': 875, 'points_y': 448},
+        # Row 7
+        {'rank': 7, 'rank_x': 190, 'rank_y': 490, 'team_name_x': 240, 'team_name_y': 488,
+         'wins_x': 540, 'wins_y': 488, 'losses_x': 667, 'losses_y': 488,
+         'winrate_x': 760, 'winrate_y': 488, 'points_x': 875, 'points_y': 488},
+        # Row 8
+        {'rank': 8, 'rank_x': 190, 'rank_y': 530, 'team_name_x': 240, 'team_name_y': 528,
+         'wins_x': 540, 'wins_y': 528, 'losses_x': 667, 'losses_y': 528,
+         'winrate_x': 760, 'winrate_y': 528, 'points_x': 875, 'points_y': 528},
+        # Row 9
+        {'rank': 9, 'rank_x': 190, 'rank_y': 570, 'team_name_x': 240, 'team_name_y': 570,
+         'wins_x': 540, 'wins_y': 570, 'losses_x': 667, 'losses_y': 570,
+         'winrate_x': 760, 'winrate_y': 570, 'points_x': 875, 'points_y': 570},
+        # Row 10
+        {'rank': 10, 'rank_x': 190, 'rank_y': 615, 'team_name_x': 240, 'team_name_y': 615,
+         'wins_x': 540, 'wins_y': 615, 'losses_x': 667, 'losses_y': 615,
+         'winrate_x': 760, 'winrate_y': 615, 'points_x': 875, 'points_y': 615},
+        # Row 11
+        {'rank': 11, 'rank_x': 190, 'rank_y': 655, 'team_name_x': 240, 'team_name_y': 655,
+         'wins_x': 540, 'wins_y': 655, 'losses_x': 667, 'losses_y': 655,
+         'winrate_x': 760, 'winrate_y': 655, 'points_x': 875, 'points_y': 655},
+        # Row 12
+        {'rank': 12, 'rank_x': 190, 'rank_y': 700, 'team_name_x': 240, 'team_name_y': 700,
+         'wins_x': 540, 'wins_y': 700, 'losses_x': 667, 'losses_y': 700,
+         'winrate_x': 760, 'winrate_y': 700, 'points_x': 875, 'points_y': 700},
+        # Row 13
+        {'rank': 13, 'rank_x': 190, 'rank_y': 740, 'team_name_x': 240, 'team_name_y': 740,
+         'wins_x': 540, 'wins_y': 740, 'losses_x': 667, 'losses_y': 740,
+         'winrate_x': 760, 'winrate_y': 740, 'points_x': 875, 'points_y': 740},
+        # Row 14
+        {'rank': 14, 'rank_x': 190, 'rank_y': 780, 'team_name_x': 240, 'team_name_y': 780,
+         'wins_x': 540, 'wins_y': 780, 'losses_x': 667, 'losses_y': 780,
+         'winrate_x': 760, 'winrate_y': 780, 'points_x': 875, 'points_y': 780},
+        # Row 15
+        {'rank': 15, 'rank_x': 190, 'rank_y': 820, 'team_name_x': 240, 'team_name_y': 820,
+         'wins_x': 540, 'wins_y': 820, 'losses_x': 667, 'losses_y': 820,
+         'winrate_x': 760, 'winrate_y': 820, 'points_x': 875, 'points_y': 820},
+    ]
+}
+
+# APAC, Global, EMEA, Americas use same config as India
+APAC_CONFIG = INDIA_CONFIG
+GLOBAL_CONFIG = INDIA_CONFIG
+EMEA_CONFIG = INDIA_CONFIG
+AMERICAS_CONFIG = INDIA_CONFIG
     'rows': [
         # Row 1
         {'rank': 1, 'rank_x': 670, 'rank_y': 900, 'team_name_x': 825, 'team_name_y': 895,
@@ -577,6 +646,11 @@ def generate_leaderboard_image(teams: List[Dict], region: str, page: int = 0) ->
         draw.text((row_config['points_x'], row_config['points_y']), 
                  points_text, font=font, fill=POINTS_COLOR)
     
+    # Upscale the image to 1.5x size for better Discord display
+    new_width = int(img.width * 1.5)
+    new_height = int(img.height * 1.5)
+    img = img.resize((new_width, new_height), Image.LANCZOS)
+    
     # Save to BytesIO with optimized compression
     output = io.BytesIO()
     # Save as JPEG with good quality and fast compression (optimize=False is faster)
@@ -681,6 +755,11 @@ def generate_player_leaderboard_image(players: List[Dict], page: int = 0) -> io.
         points_text = f"{player['points']:.1f}"
         draw.text((row_config['points_x'], row_config['points_y']), 
                  points_text, font=font, fill=POINTS_COLOR)
+    
+    # Upscale the image to 1.5x size for better Discord display
+    new_width = int(img.width * 1.5)
+    new_height = int(img.height * 1.5)
+    img = img.resize((new_width, new_height), Image.LANCZOS)
     
     # Save to BytesIO with optimized compression
     output = io.BytesIO()

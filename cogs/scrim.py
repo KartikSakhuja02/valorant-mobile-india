@@ -5,6 +5,7 @@ from discord.ui import View, Button
 import re
 import os
 import json
+import io
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from services import db
@@ -276,7 +277,7 @@ class ScrimApprovalView(View):
             
             # Check if both captains approved
             if match['captain_1_approved'] and match['captain_2_approved']:
-                # Both approved - finalize the match and start chat relay
+                # Both approved - start chat relay and ask for format selection
                 await db.update_scrim_match_status(self.match_id, 'chat_active')
                 await db.update_scrim_request_status(match['request_id_1'], 'matched')
                 await db.update_scrim_request_status(match['request_id_2'], 'matched')
@@ -290,16 +291,21 @@ class ScrimApprovalView(View):
                 captain_1 = await bot.fetch_user(match['captain_1_discord_id'])
                 captain_2 = await bot.fetch_user(match['captain_2_discord_id'])
                 
+                # Get the original formats from their requests
+                request_1 = await db.get_scrim_request_by_id(match['request_id_1'])
+                request_2 = await db.get_scrim_request_by_id(match['request_id_2'])
+                
+                format_1 = request_1['match_type'].upper() if request_1 else 'Unknown'
+                format_2 = request_2['match_type'].upper() if request_2 else 'Unknown'
+                
                 match_info = (
                     f"✅ **SCRIM MATCH CONFIRMED!**\n\n"
                     f"Both captains have approved!\n\n"
                     f"🔄 **Chat relay is now active!**\n"
                     f"Any message you send to me will be forwarded to the other captain.\n\n"
-                    f"**Commands:**\n"
-                    f"• `!ban-map` - Request to start map banning\n"
-                    f"• `!cancel-scrim` - Request to cancel scrim\n"
-                    f"  (Both require other captain's approval)\n\n"
-                    f"Good luck! 🎮"
+                    f"**Next Step: Choose Format**\n"
+                    f"Please select which format you want to play.\n"
+                    f"You can discuss via DM (messages are being relayed)."
                 )
                 
                 try:
@@ -312,12 +318,17 @@ class ScrimApprovalView(View):
                 except:
                     pass
                 
+                # Send format selection buttons to both captains
+                cog = interaction.client.get_cog('Scrim')
+                if cog:
+                    await cog.send_format_selection(match, captain_1, captain_2, format_1, format_2)
+                
                 # Disable buttons
                 for item in self.children:
                     item.disabled = True
                 
                 await interaction.edit_original_response(
-                    content=f"✅ **Match Confirmed!**\n\nBoth captains approved. Chat relay is active!\nSend messages to the bot and they'll be forwarded to the other captain.",
+                    content=f"✅ **Match Confirmed!**\n\nBoth captains approved. Choose your format now!\nChat relay is active - you can discuss the format via DM.",
                     view=self
                 )
                 
@@ -403,6 +414,119 @@ class ScrimApprovalView(View):
                 f"❌ Error processing decline: {str(e)}",
                 ephemeral=True
             )
+
+
+class FormatSelectionView(View):
+    """View for selecting scrim format (BO1/BO3/BO5)"""
+    def __init__(self, match_id: int, captain_discord_id: int, captain_num: int, format_1: str, format_2: str, cog, other_captain_id: int):
+        super().__init__(timeout=None)  # Persistent view
+        self.match_id = match_id
+        self.captain_discord_id = captain_discord_id
+        self.captain_num = captain_num
+        self.format_1 = format_1
+        self.format_2 = format_2
+        self.cog = cog
+        self.other_captain_id = other_captain_id
+    
+    @discord.ui.button(label="Captain 1's Format", style=discord.ButtonStyle.primary, custom_id="format_cap1")
+    async def format_1_button(self, interaction: discord.Interaction, button: Button):
+        """Select captain 1's format"""
+        if interaction.user.id != self.captain_discord_id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        await self.cog.handle_format_selection(self.match_id, self.captain_num, self.format_1, interaction.user)
+        
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        await interaction.edit_original_response(view=self)
+        
+        await interaction.followup.send(
+            f"✅ You selected **{self.format_1}** format!",
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="Captain 2's Format", style=discord.ButtonStyle.primary, custom_id="format_cap2")
+    async def format_2_button(self, interaction: discord.Interaction, button: Button):
+        """Select captain 2's format"""
+        if interaction.user.id != self.captain_discord_id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        await self.cog.handle_format_selection(self.match_id, self.captain_num, self.format_2, interaction.user)
+        
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        await interaction.edit_original_response(view=self)
+        
+        await interaction.followup.send(
+            f"✅ You selected **{self.format_2}** format!",
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="Other Format", style=discord.ButtonStyle.secondary, custom_id="format_other")
+    async def other_format_button(self, interaction: discord.Interaction, button: Button):
+        """Select other format"""
+        if interaction.user.id != self.captain_discord_id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        # Show modal to enter custom format
+        modal = FormatInputModal(self.match_id, self.captain_num, self.cog)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="❌ Cancel Scrim", style=discord.ButtonStyle.danger, custom_id="format_cancel")
+    async def cancel_button(self, interaction: discord.Interaction, button: Button):
+        """Cancel the scrim"""
+        if interaction.user.id != self.captain_discord_id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        # Show modal to ask for reason using stored other_captain_id
+        modal = ScrimCancelReasonModal(self.match_id, self.captain_discord_id, 
+                                       self.other_captain_id, self.cog)
+        await interaction.response.send_modal(modal)
+
+
+class FormatInputModal(discord.ui.Modal, title="Enter Format"):
+    """Modal for entering custom format"""
+    
+    format_input = discord.ui.TextInput(
+        label="Format (BO1, BO3, or BO5)",
+        style=discord.TextStyle.short,
+        placeholder="Enter BO1, BO3, or BO5",
+        required=True,
+        max_length=10
+    )
+    
+    def __init__(self, match_id: int, captain_num: int, cog):
+        super().__init__()
+        self.match_id = match_id
+        self.captain_num = captain_num
+        self.cog = cog
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        # Validate format
+        format_text = self.format_input.value.strip().upper()
+        if not re.match(r'^BO[135]$', format_text):
+            await interaction.followup.send(
+                "❌ Invalid format! Please enter BO1, BO3, or BO5.",
+                ephemeral=True
+            )
+            return
+        
+        await self.cog.handle_format_selection(self.match_id, self.captain_num, format_text, interaction.user)
+        
+        await interaction.followup.send(
+            f"✅ You selected **{format_text}** format!",
+            ephemeral=True
+        )
 
 
 class MapBanConfirmView(View):
@@ -619,6 +743,248 @@ class SidePickView(View):
         await self.cog.handle_side_pick(self.match, self.picker, self.map_name, side, self.map_index, self.total_maps)
 
 
+class ScrimCompleteCheckView(View):
+    """View for checking if scrim is complete"""
+    def __init__(self, match_id: int, captain_discord_id: int, other_captain_id: int, cog):
+        super().__init__(timeout=None)  # Persistent view
+        self.match_id = match_id
+        self.captain_discord_id = captain_discord_id
+        self.other_captain_id = other_captain_id
+        self.cog = cog
+        self.custom_id_prefix = f"scrim_complete_{match_id}_{captain_discord_id}"
+    
+    @discord.ui.button(label="✅ Yes, We're Done", style=discord.ButtonStyle.success, custom_id="scrim_done")
+    async def done_button(self, interaction: discord.Interaction, button: Button):
+        """Mark scrim as complete and request screenshots"""
+        if interaction.user.id != self.captain_discord_id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Check if other captain also clicked done
+        if not hasattr(self.cog, 'scrim_completion_votes'):
+            self.cog.scrim_completion_votes = {}
+        
+        match_key = f"match_{self.match_id}"
+        if match_key not in self.cog.scrim_completion_votes:
+            self.cog.scrim_completion_votes[match_key] = set()
+        
+        self.cog.scrim_completion_votes[match_key].add(self.captain_discord_id)
+        
+        # Check if both captains voted yes
+        if len(self.cog.scrim_completion_votes[match_key]) >= 2:
+            # Both captains ready, request screenshots
+            await self.cog.request_scrim_screenshots(self.match_id)
+            
+            # Disable buttons
+            for item in self.children:
+                item.disabled = True
+            await interaction.edit_original_response(view=self)
+            
+            await interaction.followup.send(
+                "✅ Both captains confirmed! Please upload your match result screenshot now.",
+                ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                "✅ Waiting for the other captain to confirm...",
+                ephemeral=True
+            )
+    
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, custom_id="scrim_cancel")
+    async def cancel_button(self, interaction: discord.Interaction, button: Button):
+        """Cancel the scrim"""
+        if interaction.user.id != self.captain_discord_id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        # Show modal to ask for reason
+        modal = ScrimCancelReasonModal(self.match_id, self.captain_discord_id, self.other_captain_id, self.cog)
+        await interaction.response.send_modal(modal)
+
+
+class ScrimCancelReasonModal(discord.ui.Modal, title="Cancel Scrim"):
+    """Modal for entering cancellation reason"""
+    
+    reason = discord.ui.TextInput(
+        label="Reason for cancellation",
+        style=discord.TextStyle.paragraph,
+        placeholder="Please provide a reason for cancelling this scrim...",
+        required=True,
+        max_length=500
+    )
+    
+    def __init__(self, match_id: int, captain_discord_id: int, other_captain_id: int, cog):
+        super().__init__()
+        self.match_id = match_id
+        self.captain_discord_id = captain_discord_id
+        self.other_captain_id = other_captain_id
+        self.cog = cog
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        # Store this captain's reason
+        if not hasattr(self.cog, 'scrim_cancel_reasons'):
+            self.cog.scrim_cancel_reasons = {}
+        
+        match_key = f"match_{self.match_id}"
+        if match_key not in self.cog.scrim_cancel_reasons:
+            self.cog.scrim_cancel_reasons[match_key] = {}
+        
+        self.cog.scrim_cancel_reasons[match_key][self.captain_discord_id] = self.reason.value
+        
+        # Check if other captain also cancelled
+        if len(self.cog.scrim_cancel_reasons[match_key]) >= 2:
+            # Both captains cancelled, process cancellation
+            await self.cog.process_scrim_cancellation(self.match_id, self.cog.scrim_cancel_reasons[match_key])
+            
+            # Send confirmation to this captain
+            await interaction.followup.send(
+                "✅ Both captains have agreed to cancel. The scrim has been cancelled and logged.",
+                ephemeral=True
+            )
+            
+            # Send confirmation to other captain too
+            try:
+                other_captain = await self.cog.bot.fetch_user(self.other_captain_id)
+                await other_captain.send(
+                    "✅ **Scrim Cancelled**\n\n"
+                    "Both captains have agreed to cancel the scrim. The cancellation has been logged."
+                )
+            except:
+                pass
+        else:
+            # Send cancel button with reason to other captain
+            try:
+                other_captain = await self.cog.bot.fetch_user(self.other_captain_id)
+                
+                # Create embed showing the reason
+                embed = discord.Embed(
+                    title="⚠️ Cancellation Request",
+                    description="The other captain wants to cancel the scrim.",
+                    color=0xFFA500
+                )
+                embed.add_field(
+                    name="Their Reason",
+                    value=self.reason.value,
+                    inline=False
+                )
+                embed.add_field(
+                    name="Action Required",
+                    value="Click the ❌ Cancel button below and provide your reason to complete the cancellation.",
+                    inline=False
+                )
+                
+                # Create a new cancel modal view
+                view = discord.ui.View(timeout=600)
+                cancel_button = discord.ui.Button(
+                    label="❌ Cancel Scrim",
+                    style=discord.ButtonStyle.danger
+                )
+                
+                async def cancel_callback(button_interaction: discord.Interaction):
+                    if button_interaction.user.id != self.other_captain_id:
+                        await button_interaction.response.send_message(
+                            "This button is not for you!",
+                            ephemeral=True
+                        )
+                        return
+                    
+                    # Show modal for other captain's reason
+                    modal = ScrimCancelReasonModal(
+                        self.match_id,
+                        self.other_captain_id,
+                        self.captain_discord_id,
+                        self.cog
+                    )
+                    await button_interaction.response.send_modal(modal)
+                
+                cancel_button.callback = cancel_callback
+                view.add_item(cancel_button)
+                
+                await other_captain.send(embed=embed, view=view)
+            except Exception as e:
+                print(f"Error sending cancel request to other captain: {e}")
+            
+            await interaction.followup.send(
+                "✅ Your cancellation reason has been submitted. Waiting for the other captain to respond...",
+                ephemeral=True
+            )
+
+
+class ScoreConfirmationView(View):
+    """View for confirming detected scores"""
+    def __init__(self, match_id: int, captain_discord_id: int, team_1_score: int, team_2_score: int, cog):
+        super().__init__(timeout=300)
+        self.match_id = match_id
+        self.captain_discord_id = captain_discord_id
+        self.team_1_score = team_1_score
+        self.team_2_score = team_2_score
+        self.cog = cog
+    
+    @discord.ui.button(label="✅ Correct", style=discord.ButtonStyle.success)
+    async def correct_button(self, interaction: discord.Interaction, button: Button):
+        """Confirm the scores are correct"""
+        if interaction.user.id != self.captain_discord_id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Store this captain's confirmation
+        if not hasattr(self.cog, 'score_confirmations'):
+            self.cog.score_confirmations = {}
+        
+        match_key = f"match_{self.match_id}"
+        if match_key not in self.cog.score_confirmations:
+            self.cog.score_confirmations[match_key] = set()
+        
+        self.cog.score_confirmations[match_key].add(self.captain_discord_id)
+        
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        await interaction.edit_original_response(view=self)
+        
+        # Check if both captains confirmed
+        if len(self.cog.score_confirmations[match_key]) >= 2:
+            # Both confirmed, save to database
+            await self.cog.save_scrim_results(self.match_id, self.team_1_score, self.team_2_score)
+            
+            await interaction.followup.send(
+                "✅ Scores confirmed and recorded! Thank you for playing.",
+                ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                "✅ Score confirmed. Waiting for the other captain...",
+                ephemeral=True
+            )
+    
+    @discord.ui.button(label="❌ Incorrect", style=discord.ButtonStyle.danger)
+    async def incorrect_button(self, interaction: discord.Interaction, button: Button):
+        """Reject the scores"""
+        if interaction.user.id != self.captain_discord_id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        await interaction.edit_original_response(view=self)
+        
+        await interaction.followup.send(
+            "❌ Scores marked as incorrect. Please contact an admin to manually record the results.",
+            ephemeral=True
+        )
+        
+        # Notify both captains and log
+        await self.cog.handle_score_dispute(self.match_id, interaction.user)
+
 
 class Scrim(commands.Cog):
     """Scrim management system for Looking for Scrim (LFS)"""
@@ -825,7 +1191,16 @@ class Scrim(commands.Cog):
             return
         
         hour, minute, timezone = parsed_time
-        time_slot = time_part  # Store just the time part
+        
+        # Convert to datetime object with timezone
+        # Use today's date + the parsed time in the specified timezone
+        tz = ZoneInfo(TIMEZONE_MAP[timezone])
+        now = datetime.now(tz)
+        time_slot = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        
+        # If the time has already passed today, set it for tomorrow
+        if time_slot < now:
+            time_slot = time_slot + timedelta(days=1)
         
         # Delete the user's message immediately (valid format)
         await message.delete()
@@ -887,13 +1262,15 @@ class Scrim(commands.Cog):
             )
             
             # Send confirmation message (will be deleted after 15 seconds)
+            # Format time_slot for display
+            time_display = time_slot.strftime("%I:%M %p %Z") if isinstance(time_slot, datetime) else str(time_slot)
             confirm_msg = await message.channel.send(
                 f"✅ **Scrim Request Posted!**\n\n"
                 f"**Team:** {team_name}\n"
                 f"**Posted by:** {message.author.mention}\n"
                 f"**Match Type:** {match_type.upper()}\n"
                 f"**Region:** {region.upper()}\n"
-                f"**Time:** {time_slot}\n\n"
+                f"**Time:** {time_display}\n\n"
                 f"Check your DMs to see all available scrim requests! 🔍"
             )
             await confirm_msg.delete(delay=15)
@@ -958,48 +1335,44 @@ class Scrim(commands.Cog):
                     team = await db.get_player_team(req['captain_discord_id'])
                 team_name = f"{team['name']} [{team['tag']}]" if team else "Unknown Team"
                 
-                # Convert their time to requester's timezone
+                # Handle time_slot (now a datetime object)
+                req_time = req['time_slot']
                 req_tz = req.get('timezone', 'IST')
-                converted_time = req['time_slot']  # Default to original
-                converted_hour = 0
-                converted_minute = 0
                 
-                if req_tz and requester_tz and req_tz != requester_tz:
-                    # Parse their time
-                    parsed = parse_time_with_timezone(req['time_slot'])
-                    if parsed:
-                        hour, minute, _ = parsed
-                        converted_hour, converted_minute, converted_formatted = convert_time_to_timezone(hour, minute, req_tz, requester_tz)
-                        converted_time = converted_formatted
+                # Format the time for display
+                if isinstance(req_time, datetime):
+                    their_time_display = req_time.strftime("%I:%M %p %Z")
+                    
+                    # Convert to requester's timezone if different
+                    if requester_tz and req_tz != requester_tz:
+                        requester_tz_obj = ZoneInfo(TIMEZONE_MAP.get(requester_tz, 'UTC'))
+                        converted_time = req_time.astimezone(requester_tz_obj)
+                        your_time_display = converted_time.strftime("%I:%M %p %Z")
+                        time_display = f"**Your Time:** {your_time_display}\n**Their Time:** {their_time_display}"
+                        scrim_time = converted_time
+                    else:
+                        time_display = f"**Time:** {their_time_display}"
+                        scrim_time = req_time
+                    
+                    # Calculate time until scrim
+                    now = datetime.now(scrim_time.tzinfo)
+                    time_until = scrim_time - now
+                    
+                    # If negative, it's tomorrow
+                    if time_until.total_seconds() < 0:
+                        time_until = time_until + timedelta(days=1)
+                    
+                    hours_until = int(time_until.total_seconds() // 3600)
+                    minutes_until = int((time_until.total_seconds() % 3600) // 60)
+                    
+                    # Add countdown
+                    if hours_until > 0:
+                        time_display += f"\n⏰ In {hours_until}h {minutes_until}m"
+                    else:
+                        time_display += f"\n⏰ In {minutes_until} minutes"
                 else:
-                    # Same timezone, just parse it
-                    parsed = parse_time_with_timezone(req['time_slot'])
-                    if parsed:
-                        converted_hour, converted_minute, _ = parsed
-                
-                # Calculate time until scrim (create a datetime for today at that time)
-                now = datetime.now()
-                scrim_time = now.replace(hour=converted_hour, minute=converted_minute, second=0, microsecond=0)
-                
-                # If the time has passed today, assume it's for tomorrow
-                if scrim_time < now:
-                    scrim_time += timedelta(days=1)
-                
-                time_until = scrim_time - now
-                hours_until = int(time_until.total_seconds() // 3600)
-                minutes_until = int((time_until.total_seconds() % 3600) // 60)
-                
-                # Build time display
-                if req_tz and requester_tz and req_tz != requester_tz:
-                    time_display = f"**Your Time:** {converted_time}\n**Their Time:** {req['time_slot']}"
-                else:
-                    time_display = f"**Time:** {req['time_slot']}"
-                
-                # Add countdown
-                if hours_until > 0:
-                    time_display += f"\n⏰ In {hours_until}h {minutes_until}m"
-                else:
-                    time_display += f"\n⏰ In {minutes_until} minutes"
+                    # Fallback for string time_slot (backward compatibility)
+                    time_display = f"**Time:** {req_time}"
                 
                 # Build status text
                 status_text = ""
@@ -1080,44 +1453,42 @@ class Scrim(commands.Cog):
                     
                     # Convert new request's time to this captain's timezone
                     other_tz = req.get('timezone', 'IST')
-                    converted_time = new_request['time_slot']
-                    converted_hour = 0
-                    converted_minute = 0
+                    new_time = new_request['time_slot']
+                    new_req_tz = new_request.get('timezone', 'IST')
                     
-                    if new_req_tz and other_tz and new_req_tz != other_tz:
-                        parsed = parse_time_with_timezone(new_request['time_slot'])
-                        if parsed:
-                            hour, minute, _ = parsed
-                            converted_hour, converted_minute, converted_formatted = convert_time_to_timezone(hour, minute, new_req_tz, other_tz)
-                            converted_time = converted_formatted
+                    if isinstance(new_time, datetime):
+                        their_time_display = new_time.strftime("%I:%M %p %Z")
+                        
+                        # Convert to other captain's timezone if different
+                        if new_req_tz != other_tz:
+                            other_tz_obj = ZoneInfo(TIMEZONE_MAP.get(other_tz, 'UTC'))
+                            converted_time = new_time.astimezone(other_tz_obj)
+                            your_time_display = converted_time.strftime("%I:%M %p %Z")
+                            time_display = f"**Your Time:** {your_time_display}\n**Their Time:** {their_time_display}"
+                            scrim_time = converted_time
+                        else:
+                            time_display = f"**Time:** {their_time_display}"
+                            scrim_time = new_time
+                        
+                        # Calculate time until scrim
+                        now = datetime.now(scrim_time.tzinfo)
+                        time_until = scrim_time - now
+                        
+                        if time_until.total_seconds() < 0:
+                            time_until = time_until + timedelta(days=1)
+                        
+                        hours_until = int(time_until.total_seconds() // 3600)
+                        minutes_until = int((time_until.total_seconds() % 3600) // 60)
+                        
+                        # Add countdown
+                        if hours_until > 0:
+                            time_display += f"\n⏰ In {hours_until}h {minutes_until}m"
+                        else:
+                            time_display += f"\n⏰ In {minutes_until} minutes"
                     else:
-                        # Same timezone
-                        parsed = parse_time_with_timezone(new_request['time_slot'])
-                        if parsed:
-                            converted_hour, converted_minute, _ = parsed
-                    
-                    # Calculate time until scrim
-                    now = datetime.now()
-                    scrim_time = now.replace(hour=converted_hour, minute=converted_minute, second=0, microsecond=0)
-                    
-                    if scrim_time < now:
-                        scrim_time += timedelta(days=1)
-                    
-                    time_until = scrim_time - now
-                    hours_until = int(time_until.total_seconds() // 3600)
-                    minutes_until = int((time_until.total_seconds() % 3600) // 60)
-                    
-                    # Build time display
-                    if new_req_tz and other_tz and new_req_tz != other_tz:
-                        time_display = f"**Your Time:** {converted_time}\n**Their Time:** {new_request['time_slot']}"
-                    else:
-                        time_display = f"**Time:** {new_request['time_slot']}"
-                    
-                    # Add countdown
-                    if hours_until > 0:
-                        time_display += f"\n⏰ In {hours_until}h {minutes_until}m"
-                    else:
-                        time_display += f"\n⏰ In {minutes_until} minutes"
+                        # Fallback for string
+                        time_display = f"**Time:** {new_time}"
+                        scrim_time = datetime.now()  # Default for timestamp
                     
                     # Create embed for the new request
                     embed = discord.Embed(
@@ -1183,22 +1554,25 @@ class Scrim(commands.Cog):
             view_2 = ScrimApprovalView(match['id'], 2, team_1_name)
             
             # Build match info messages
+            # Captain 1 gets notified that the acceptor (captain 2) accepted their request
             msg_1 = (
                 f"🤝 **SCRIM MATCH FOUND!**\n\n"
                 f"**Opponent Team:** {team_2_name}\n"
                 f"**Opponent Captain:** {captain_2.display_name}\n\n"
                 f"**Their Request:** {request_2['match_type'].upper()}, {request_2['time_slot']}\n"
                 f"**Your Request:** {request_1['match_type'].upper()}, {request_1['time_slot']}\n\n"
+                f"**{acceptor.display_name}** accepted your scrim request!\n"
                 f"Please approve or decline this scrim match."
             )
             
+            # Captain 2 (the acceptor) sees their own acceptance
             msg_2 = (
                 f"🤝 **SCRIM MATCH FOUND!**\n\n"
                 f"**Opponent Team:** {team_1_name}\n"
                 f"**Opponent Captain:** {captain_1.display_name}\n\n"
                 f"**Their Request:** {request_1['match_type'].upper()}, {request_1['time_slot']}\n"
                 f"**Your Request:** {request_2['match_type'].upper()}, {request_2['time_slot']}\n\n"
-                f"**{acceptor.display_name}** accepted your scrim request!\n"
+                f"You accepted their scrim request!\n"
                 f"Please approve or decline this scrim match."
             )
             
@@ -1219,6 +1593,172 @@ class Scrim(commands.Cog):
             
         except Exception as e:
             print(f"Error in create_scrim_match_from_requests: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def send_format_selection(self, match: dict, captain_1: discord.User, captain_2: discord.User, format_1: str, format_2: str):
+        """Send format selection buttons to both captains"""
+        try:
+            # Store captain IDs for cancel button access
+            if not hasattr(self, 'match_data'):
+                self.match_data = {}
+            if match['id'] not in self.match_data:
+                self.match_data[match['id']] = {}
+            self.match_data[match['id']]['captain_1_id'] = captain_1.id
+            self.match_data[match['id']]['captain_2_id'] = captain_2.id
+            
+            # Create embed explaining the format selection
+            embed = discord.Embed(
+                title="🎮 Choose Scrim Format",
+                description=(
+                    "Please select which format you want to play.\n"
+                    "You can discuss with the other captain via DM (chat relay is active).\n\n"
+                    "**Both captains must select the same format to proceed.**"
+                ),
+                color=0x3498DB
+            )
+            
+            embed.add_field(
+                name=f"Captain 1's Format ({captain_1.display_name})",
+                value=f"**{format_1}**",
+                inline=True
+            )
+            
+            embed.add_field(
+                name=f"Captain 2's Format ({captain_2.display_name})",
+                value=f"**{format_2}**",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Other Format",
+                value="Choose a different format (BO1/BO3/BO5)",
+                inline=True
+            )
+            
+            # Update button labels with the actual formats and pass other captain ID
+            view_1 = FormatSelectionView(match['id'], captain_1.id, 1, format_1, format_2, self, captain_2.id)
+            view_1.children[0].label = f"{format_1} (Captain 1)"
+            view_1.children[1].label = f"{format_2} (Captain 2)"
+            
+            view_2 = FormatSelectionView(match['id'], captain_2.id, 2, format_1, format_2, self, captain_1.id)
+            view_2.children[0].label = f"{format_1} (Captain 1)"
+            view_2.children[1].label = f"{format_2} (Captain 2)"
+            
+            # Send to both captains
+            try:
+                await captain_1.send(embed=embed, view=view_1)
+            except Exception as e:
+                print(f"Error sending format selection to captain 1: {e}")
+            
+            try:
+                await captain_2.send(embed=embed, view=view_2)
+            except Exception as e:
+                print(f"Error sending format selection to captain 2: {e}")
+            
+        except Exception as e:
+            print(f"Error in send_format_selection: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def handle_format_selection(self, match_id: int, captain_num: int, selected_format: str, user: discord.User):
+        """Handle format selection from a captain"""
+        try:
+            # Store format selection
+            if not hasattr(self, 'format_selections'):
+                self.format_selections = {}
+            
+            match_key = f"match_{match_id}"
+            if match_key not in self.format_selections:
+                self.format_selections[match_key] = {}
+            
+            self.format_selections[match_key][captain_num] = selected_format
+            
+            # Check if both captains have selected
+            if len(self.format_selections[match_key]) >= 2:
+                format_cap1 = self.format_selections[match_key].get(1)
+                format_cap2 = self.format_selections[match_key].get(2)
+                
+                # Get match and captains
+                match = await db.get_scrim_match_by_id(match_id)
+                if not match:
+                    return
+                
+                captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+                captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+                
+                # Check if both selected the same format
+                if format_cap1 == format_cap2:
+                    # Both agreed on format, update match and proceed
+                    await db.update_scrim_match_format(match_id, format_cap1.lower())
+                    
+                    # Store the agreed format in match_data for map banning
+                    if match_id not in self.match_data:
+                        self.match_data[match_id] = {}
+                    self.match_data[match_id]['agreed_format'] = format_cap1.lower()
+                    
+                    # Notify both captains
+                    success_msg = (
+                        f"✅ **Format Agreed!**\n\n"
+                        f"Both captains selected **{format_cap1}**.\n\n"
+                        f"**Commands:**\n"
+                        f"• `!ban-map` - Request to start map banning\n"
+                        f"• `!cancel-scrim` - Request to cancel scrim\n\n"
+                        f"Chat relay is still active. Use `!ban-map` when ready!"
+                    )
+                    
+                    try:
+                        await captain_1.send(success_msg)
+                    except:
+                        pass
+                    
+                    try:
+                        await captain_2.send(success_msg)
+                    except:
+                        pass
+                    
+                    # Clean up format selection tracking
+                    del self.format_selections[match_key]
+                else:
+                    # Different formats selected, ask to discuss
+                    conflict_msg = (
+                        f"⚠️ **Format Mismatch**\n\n"
+                        f"Captain 1 selected: **{format_cap1}**\n"
+                        f"Captain 2 selected: **{format_cap2}**\n\n"
+                        f"Please discuss and select again. The selection buttons are still available above."
+                    )
+                    
+                    try:
+                        await captain_1.send(conflict_msg)
+                    except:
+                        pass
+                    
+                    try:
+                        await captain_2.send(conflict_msg)
+                    except:
+                        pass
+                    
+                    # Reset selections so they can choose again
+                    self.format_selections[match_key] = {}
+            else:
+                # Only one captain selected, notify and wait
+                match = await db.get_scrim_match_by_id(match_id)
+                if not match:
+                    return
+                
+                other_captain_id = match['captain_2_discord_id'] if captain_num == 1 else match['captain_1_discord_id']
+                other_captain = await self.bot.fetch_user(other_captain_id)
+                
+                try:
+                    await other_captain.send(
+                        f"⏳ **{user.display_name}** has selected **{selected_format}** format.\n"
+                        f"Please select your format preference."
+                    )
+                except:
+                    pass
+        
+        except Exception as e:
+            print(f"Error in handle_format_selection: {e}")
             import traceback
             traceback.print_exc()
     
@@ -1335,6 +1875,34 @@ class Scrim(commands.Cog):
         """Handle DM messages from captains for chat relay"""
         try:
             captain_id = message.author.id
+            
+            # Check if we're waiting for a screenshot from this captain
+            if hasattr(self, 'awaiting_screenshots'):
+                for match_id, data in self.awaiting_screenshots.items():
+                    if captain_id in [data['captain_1'], data['captain_2']] and captain_id not in data['received']:
+                        # Check if message has attachments
+                        if message.attachments:
+                            screenshot = message.attachments[0]
+                            if screenshot.content_type and screenshot.content_type.startswith('image/'):
+                                # Store screenshot
+                                match_key = f"match_{match_id}"
+                                if not hasattr(self, 'scrim_screenshots'):
+                                    self.scrim_screenshots = {}
+                                if match_key not in self.scrim_screenshots:
+                                    self.scrim_screenshots[match_key] = {}
+                                
+                                self.scrim_screenshots[match_key][captain_id] = screenshot
+                                data['received'].add(captain_id)
+                                
+                                await message.add_reaction("✅")
+                                await message.channel.send("✅ Screenshot received! Waiting for the other captain...")
+                                
+                                # Check if both screenshots received
+                                if len(data['received']) == 2:
+                                    # Both received, validate and extract scores
+                                    await self.process_screenshots(match_id)
+                                
+                                return
             
             # Check if captain has an active chat match
             pending_matches = await db.get_captain_pending_matches(captain_id)
@@ -1554,7 +2122,11 @@ class Scrim(commands.Cog):
         all_maps = ["Ascent", "Bind", "Icebox", "Haven", "Split", "Breeze", "Fracture", "Pearl"]
         
         # Determine how many maps to ban based on match type
+        # Check if captains agreed on a different format during format selection
         match_type = match['match_type']
+        if match['id'] in self.match_data and 'agreed_format' in self.match_data[match['id']]:
+            match_type = self.match_data[match['id']]['agreed_format']
+        
         if match_type == 'bo1':
             maps_needed = 1
             total_bans = 7  # Ban 7, play 1
@@ -1723,7 +2295,8 @@ class Scrim(commands.Cog):
         embed.add_field(name="🗺️ Maps & Sides", value=maps_text, inline=False)
         
         # Additional info
-        embed.add_field(name="⏰ Time", value=match['time_slot'], inline=True)
+        time_display = match['time_slot'].strftime("%I:%M %p %Z") if isinstance(match['time_slot'], datetime) else str(match['time_slot'])
+        embed.add_field(name="⏰ Time", value=time_display, inline=True)
         embed.add_field(name="🌍 Region", value=match['region'].upper(), inline=True)
         
         embed.set_footer(text="Good luck and have fun! 🎉")
@@ -1732,10 +2305,447 @@ class Scrim(commands.Cog):
         await captain_1.send(embed=embed)
         await captain_2.send(embed=embed)
         
-        # Update match status to completed
-        await db.update_scrim_match_status(match['id'], 'completed')
+        # Update match status to in_progress (they're playing now)
+        await db.update_scrim_match_status(match['id'], 'in_progress')
         
-        print(f"✅ Scrim match {match['id']} completed with final details sent")
+        print(f"✅ Scrim match {match['id']} setup completed, now in progress")
+        
+        # Log scheduled scrim to bot logs
+        logs_channel_id = os.getenv('LOGS_CHANNEL_ID')
+        if logs_channel_id:
+            try:
+                logs_channel = self.bot.get_channel(int(logs_channel_id))
+                if logs_channel:
+                    log_embed = discord.Embed(
+                        title="🎮 Scrim Scheduled",
+                        description=f"**Match ID:** {match['id']}\n**Type:** {match['match_type'].upper()}\n**Region:** {match['region'].upper()}",
+                        color=0x3498DB,
+                        timestamp=datetime.now()
+                    )
+                    
+                    log_embed.add_field(
+                        name="Teams",
+                        value=f"**{team_1_name}** vs **{team_2_name}",
+                        inline=False
+                    )
+                    
+                    log_embed.add_field(
+                        name="Captains",
+                        value=f"{captain_1.mention} vs {captain_2.mention}",
+                        inline=False
+                    )
+                    
+                    log_embed.add_field(name="Maps & Sides", value=maps_text, inline=False)
+                    log_embed.add_field(name="⏰ Time", value=time_display, inline=True)
+                    log_embed.add_field(name="🌍 Region", value=match['region'].upper(), inline=True)
+                    
+                    await logs_channel.send(embed=log_embed)
+            except Exception as e:
+                print(f"Error logging scheduled scrim: {e}")
+        
+        # Send completion check buttons after match details
+        await self.send_completion_check(match, captain_1, captain_2)
+    
+    async def send_completion_check(self, match: dict, captain_1: discord.User, captain_2: discord.User):
+        """Send completion check to both captains after match setup"""
+        # Wait a bit before asking (they need to play first!)
+        embed = discord.Embed(
+            title="✅ Match Ready",
+            description=(
+                "Your scrim details have been finalized! Once you've finished playing:\n\n"
+                "• Click **✅ Yes, We're Done** if the match is complete\n"
+                "• Click **❌ Cancel** if you need to cancel the scrim\n\n"
+                "**Both captains must respond to proceed.**"
+            ),
+            color=0x00FF00
+        )
+        
+        # Send to captain 1
+        view1 = ScrimCompleteCheckView(match['id'], captain_1.id, captain_2.id, self)
+        await captain_1.send(embed=embed, view=view1)
+        
+        # Send to captain 2
+        view2 = ScrimCompleteCheckView(match['id'], captain_2.id, captain_1.id, self)
+        await captain_2.send(embed=embed, view=view2)
+    
+    async def request_scrim_screenshots(self, match_id: int):
+        """Request screenshots from both captains"""
+        match = await db.get_scrim_match_by_id(match_id)
+        if not match:
+            return
+        
+        captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+        captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+        
+        # Initialize screenshot storage
+        if not hasattr(self, 'scrim_screenshots'):
+            self.scrim_screenshots = {}
+        
+        match_key = f"match_{match_id}"
+        self.scrim_screenshots[match_key] = {}
+        
+        # Request from both captains
+        embed = discord.Embed(
+            title="📸 Upload Match Screenshot",
+            description=(
+                "Please upload a screenshot of the final match results.\n\n"
+                "**Requirements:**\n"
+                "• Must show final scoreboard\n"
+                "• Must show all 10 player names clearly\n"
+                "• Must be from the end-game screen\n\n"
+                "Simply attach and send the image in this DM."
+            ),
+            color=0x3498DB
+        )
+        
+        await captain_1.send(embed=embed)
+        await captain_2.send(embed=embed)
+        
+        # Store that we're waiting for screenshots
+        if not hasattr(self, 'awaiting_screenshots'):
+            self.awaiting_screenshots = {}
+        self.awaiting_screenshots[match_id] = {
+            'captain_1': captain_1.id,
+            'captain_2': captain_2.id,
+            'received': set()
+        }
+    
+    async def process_scrim_cancellation(self, match_id: int, reasons: dict):
+        """Process scrim cancellation with reasons from both captains"""
+        match = await db.get_scrim_match_by_id(match_id)
+        if not match:
+            return
+        
+        # Get team info
+        captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+        captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+        
+        team_1 = await db.get_team_by_captain(captain_1.id)
+        team_2 = await db.get_team_by_captain(captain_2.id)
+        
+        team_1_name = f"{team_1['name']} [{team_1['tag']}]" if team_1 else captain_1.display_name
+        team_2_name = f"{team_2['name']} [{team_2['tag']}]" if team_2 else captain_2.display_name
+        
+        # Update match status
+        await db.update_scrim_match_status(match_id, 'cancelled')
+        
+        # Add both teams to avoid list for 6 hours
+        try:
+            await db.add_to_avoid_list(
+                match['captain_1_discord_id'],
+                match['captain_2_discord_id'],
+                hours=6
+            )
+            await db.add_to_avoid_list(
+                match['captain_2_discord_id'],
+                match['captain_1_discord_id'],
+                hours=6
+            )
+        except Exception as e:
+            print(f"Error adding to avoid list: {e}")
+        
+        # Send cancellation confirmation to both captains
+        cancel_embed = discord.Embed(
+            title="❌ Scrim Cancelled",
+            description=(
+                "Both captains have agreed to cancel the scrim.\n\n"
+                f"**Match ID:** {match_id}\n"
+                f"**{team_1_name}** vs **{team_2_name}**"
+            ),
+            color=0xFF0000
+        )
+        
+        cancel_embed.add_field(
+            name="Your Reason",
+            value=reasons.get(captain_1.id, 'No reason provided'),
+            inline=False
+        )
+        
+        cancel_embed.add_field(
+            name="Other Captain's Reason",
+            value=reasons.get(captain_2.id, 'No reason provided'),
+            inline=False
+        )
+        
+        # Send to captain 1
+        try:
+            await captain_1.send(embed=cancel_embed)
+        except:
+            pass
+        
+        # Send to captain 2 (swap the reasons)
+        cancel_embed_2 = discord.Embed(
+            title="❌ Scrim Cancelled",
+            description=(
+                "Both captains have agreed to cancel the scrim.\n\n"
+                f"**Match ID:** {match_id}\n"
+                f"**{team_1_name}** vs **{team_2_name}**"
+            ),
+            color=0xFF0000
+        )
+        
+        cancel_embed_2.add_field(
+            name="Your Reason",
+            value=reasons.get(captain_2.id, 'No reason provided'),
+            inline=False
+        )
+        
+        cancel_embed_2.add_field(
+            name="Other Captain's Reason",
+            value=reasons.get(captain_1.id, 'No reason provided'),
+            inline=False
+        )
+        
+        try:
+            await captain_2.send(embed=cancel_embed_2)
+        except:
+            pass
+        
+        # Log to bot logs channel
+        logs_channel_id = os.getenv('LOGS_CHANNEL_ID')
+        if logs_channel_id:
+            try:
+                logs_channel = self.bot.get_channel(int(logs_channel_id))
+                if logs_channel:
+                    embed = discord.Embed(
+                        title="❌ Scrim Cancelled",
+                        description=f"**Match ID:** {match_id}\n**Type:** {match['match_type'].upper()}\n**Region:** {match['region'].upper()}",
+                        color=0xFF0000,
+                        timestamp=datetime.now()
+                    )
+                    
+                    embed.add_field(
+                        name=f"Team 1: {team_1_name}",
+                        value=f"**Captain:** {captain_1.mention}\n**Reason:** {reasons.get(captain_1.id, 'No reason provided')}",
+                        inline=False
+                    )
+                    
+                    embed.add_field(
+                        name=f"Team 2: {team_2_name}",
+                        value=f"**Captain:** {captain_2.mention}\n**Reason:** {reasons.get(captain_2.id, 'No reason provided')}",
+                        inline=False
+                    )
+                    
+                    await logs_channel.send(embed=embed)
+            except:
+                pass
+        
+        # Clean up match data
+        if match_id in self.match_data:
+            del self.match_data[match_id]
+        
+        # Clear vote tracking
+        match_key = f"match_{match_id}"
+        if hasattr(self, 'scrim_completion_votes') and match_key in self.scrim_completion_votes:
+            del self.scrim_completion_votes[match_key]
+        if hasattr(self, 'scrim_cancel_reasons') and match_key in self.scrim_cancel_reasons:
+            del self.scrim_cancel_reasons[match_key]
+        
+        print(f"❌ Scrim match {match_id} cancelled by both captains")
+    
+    async def validate_scrim_screenshots(self, match_id: int, screenshot_1, screenshot_2):
+        """Validate screenshots and extract scores"""
+        # This would use OCR service similar to registration
+        # For now, we'll implement a basic version
+        
+        # TODO: Implement actual screenshot processing with OCR
+        # 1. Download both screenshots
+        # 2. Use OCR to extract player names
+        # 3. Compare against team rosters
+        # 4. Extract scores
+        # 5. Return validation result
+        
+        # Placeholder return
+        return {
+            'valid': True,
+            'team_1_score': 13,
+            'team_2_score': 11,
+            'map': 'Haven'
+        }
+    
+    async def process_screenshots(self, match_id: int):
+        """Process both screenshots after they're received"""
+        try:
+            match = await db.get_scrim_match_by_id(match_id)
+            if not match:
+                return
+            
+            captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+            captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+            
+            match_key = f"match_{match_id}"
+            screenshots = self.scrim_screenshots.get(match_key, {})
+            
+            if len(screenshots) < 2:
+                return
+            
+            # Get both screenshots
+            screenshot_1 = screenshots[captain_1.id]
+            screenshot_2 = screenshots[captain_2.id]
+            
+            # Notify both captains we're processing
+            await captain_1.send("⏳ Processing screenshots...")
+            await captain_2.send("⏳ Processing screenshots...")
+            
+            # Validate and extract scores
+            result = await self.validate_scrim_screenshots(match_id, screenshot_1, screenshot_2)
+            
+            if not result['valid']:
+                # Screenshots don't match or couldn't be validated
+                await captain_1.send("❌ Screenshots couldn't be validated. Please contact an admin.")
+                await captain_2.send("❌ Screenshots couldn't be validated. Please contact an admin.")
+                return
+            
+            # Scores extracted, ask for confirmation
+            team_1 = await db.get_team_by_captain(captain_1.id)
+            team_2 = await db.get_team_by_captain(captain_2.id)
+            
+            team_1_name = f"{team_1['name']} [{team_1['tag']}]" if team_1 else captain_1.display_name
+            team_2_name = f"{team_2['name']} [{team_2['tag']}]" if team_2 else captain_2.display_name
+            
+            score_embed = discord.Embed(
+                title="📊 Detected Scores",
+                description="Please confirm if these scores are correct:",
+                color=0x3498DB
+            )
+            
+            score_embed.add_field(
+                name="Final Score",
+                value=f"**{team_1_name}:** {result['team_1_score']}\n**{team_2_name}:** {result['team_2_score']}",
+                inline=False
+            )
+            
+            if 'map' in result:
+                score_embed.add_field(name="Map", value=result['map'], inline=False)
+            
+            # Send confirmation buttons to both captains
+            view1 = ScoreConfirmationView(match_id, captain_1.id, result['team_1_score'], result['team_2_score'], self)
+            await captain_1.send(embed=score_embed, view=view1)
+            
+            view2 = ScoreConfirmationView(match_id, captain_2.id, result['team_1_score'], result['team_2_score'], self)
+            await captain_2.send(embed=score_embed, view=view2)
+            
+            # Clean up screenshot tracking
+            if match_id in self.awaiting_screenshots:
+                del self.awaiting_screenshots[match_id]
+            
+        except Exception as e:
+            print(f"Error processing screenshots for match {match_id}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def save_scrim_results(self, match_id: int, team_1_score: int, team_2_score: int):
+        """Save scrim results to database"""
+        match = await db.get_scrim_match_by_id(match_id)
+        if not match:
+            return
+        
+        # Update match status to completed with scores
+        await db.update_scrim_match_status(match_id, 'completed')
+        
+        # TODO: Add function to store scores in database
+        # This would require a new table or columns in scrim_matches
+        
+        # Get captains
+        captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+        captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+        
+        # Get screenshots if available
+        match_key = f"match_{match_id}"
+        screenshots = self.scrim_screenshots.get(match_key, {}) if hasattr(self, 'scrim_screenshots') else {}
+        
+        # Log to bot logs
+        logs_channel_id = os.getenv('LOGS_CHANNEL_ID')
+        if logs_channel_id:
+            try:
+                logs_channel = self.bot.get_channel(int(logs_channel_id))
+                if logs_channel:
+                    team_1 = await db.get_team_by_captain(captain_1.id)
+                    team_2 = await db.get_team_by_captain(captain_2.id)
+                    
+                    team_1_name = f"{team_1['name']} [{team_1['tag']}]" if team_1 else captain_1.display_name
+                    team_2_name = f"{team_2['name']} [{team_2['tag']}]" if team_2 else captain_2.display_name
+                    
+                    embed = discord.Embed(
+                        title="✅ Scrim Completed",
+                        description=f"**Match ID:** {match_id}\n**Type:** {match['match_type'].upper()}\n**Region:** {match['region'].upper()}",
+                        color=0x00FF00,
+                        timestamp=datetime.now()
+                    )
+                    
+                    embed.add_field(
+                        name="Final Score",
+                        value=f"**{team_1_name}:** {team_1_score}\n**{team_2_name}:** {team_2_score}",
+                        inline=False
+                    )
+                    
+                    winner = team_1_name if team_1_score > team_2_score else team_2_name
+                    embed.add_field(name="Winner", value=f"🏆 {winner}", inline=False)
+                    
+                    embed.add_field(
+                        name="Captains",
+                        value=f"{captain_1.mention} vs {captain_2.mention}",
+                        inline=False
+                    )
+                    
+                    # Send embed first
+                    msg = await logs_channel.send(embed=embed)
+                    
+                    # Send screenshots if available
+                    if screenshots:
+                        screenshot_files = []
+                        try:
+                            for captain_id, attachment in screenshots.items():
+                                if attachment:
+                                    # Download and re-upload screenshot
+                                    file_bytes = await attachment.read()
+                                    screenshot_files.append(
+                                        discord.File(
+                                            io.BytesIO(file_bytes),
+                                            filename=f"screenshot_{captain_id}.png"
+                                        )
+                                    )
+                            
+                            if screenshot_files:
+                                await logs_channel.send(
+                                    f"📸 **Screenshots for Match ID {match_id}:**",
+                                    files=screenshot_files
+                                )
+                        except Exception as e:
+                            print(f"Error uploading screenshots: {e}")
+            except Exception as e:
+                print(f"Error logging scrim completion: {e}")
+        
+        # Clean up tracking
+        match_key = f"match_{match_id}"
+        if hasattr(self, 'score_confirmations') and match_key in self.score_confirmations:
+            del self.score_confirmations[match_key]
+        
+        print(f"✅ Scrim match {match_id} results saved: {team_1_score}-{team_2_score}")
+    
+    async def handle_score_dispute(self, match_id: int, disputer: discord.User):
+        """Handle when a captain disputes the detected scores"""
+        logs_channel_id = os.getenv('LOGS_CHANNEL_ID')
+        if logs_channel_id:
+            try:
+                logs_channel = self.bot.get_channel(int(logs_channel_id))
+                if logs_channel:
+                    embed = discord.Embed(
+                        title="⚠️ Score Dispute",
+                        description=f"**Match ID:** {match_id}\n{disputer.mention} disputed the detected scores.",
+                        color=0xFFA500,
+                        timestamp=datetime.now()
+                    )
+                    embed.add_field(
+                        name="Action Required",
+                        value="An admin needs to manually review and record the match results.",
+                        inline=False
+                    )
+                    await logs_channel.send(embed=embed)
+            except:
+                pass
+        
+        print(f"⚠️ Score dispute for match {match_id} by {disputer.display_name}")
     
     @app_commands.command(name="cancel-scrim", description="Cancel your pending scrim request")
     async def cancel_scrim(self, interaction: discord.Interaction):

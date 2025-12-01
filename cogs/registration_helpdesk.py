@@ -80,31 +80,51 @@ class HelpdeskView(discord.ui.View):
         except Exception as e:
             print(f"❌ Error adding user to thread: {e}")
         
-        # Get staff and moderator role IDs
+        # Get staff role IDs
+        admin_role_id = int(cfg('ROLE_ADMINISTRATOR_ID', 0)) if cfg('ROLE_ADMINISTRATOR_ID') else None
         staff_role_id = int(cfg('ROLE_STAFF_ID', 0)) if cfg('ROLE_STAFF_ID') else None
+        mod_role_id = int(cfg('ROLE_MODERATOR_ID', 0)) if cfg('ROLE_MODERATOR_ID') else None
         
-        # Collect online staff members
-        online_staff = []
-        staff_role = interaction.guild.get_role(staff_role_id) if staff_role_id else None
+        print(f"🔍 Looking for staff with role IDs: Admin={admin_role_id}, Staff={staff_role_id}, Mod={mod_role_id}")
         
-        # Add all staff members to thread (staff role only)
+        # Add all staff members to thread
+        staff_added = 0
         for member in interaction.guild.members:
-            is_staff = False
+            # Skip the user who created the thread (already added)
+            if member.id == interaction.user.id:
+                continue
+                
+            should_add = False
             
-            # Check if member has staff role or admin permissions
+            # Check if member has admin permission
             if member.guild_permissions.administrator:
-                is_staff = True
-            elif staff_role_id and any(role.id == staff_role_id for role in member.roles):
-                is_staff = True
+                should_add = True
+                print(f"  👑 Found admin by permission: {member.name}")
             
-            if is_staff:
+            # Check if member has any of the staff role IDs
+            for role in member.roles:
+                if role.id == admin_role_id:
+                    should_add = True
+                    print(f"  👑 Found admin by role: {member.name}")
+                elif role.id == staff_role_id:
+                    should_add = True
+                    print(f"  👮 Found staff: {member.name}")
+                elif role.id == mod_role_id:
+                    should_add = True
+                    print(f"  👮 Found moderator: {member.name}")
+            
+            if should_add:
                 try:
                     await thread.add_user(member)
-                except:
-                    pass
+                    staff_added += 1
+                    print(f"  ✅ Added {member.name} to thread")
+                except Exception as e:
+                    print(f"  ❌ Failed to add {member.name}: {e}")
+        
+        print(f"✓ Added {staff_added} staff members to thread")
                 
                 # Check if member is online
-                if member.status != discord.Status.offline:
+        if member.status != discord.Status.offline:
                     online_staff.append(member)
         
         # Build role mention string for ghost ping (staff only)
@@ -664,6 +684,4 @@ class RegistrationHelpdesk(commands.Cog):
             print(f"❌ Error sending helpdesk UI: {e}")
 
 async def setup(bot):
-    # Register persistent view
-    bot.add_view(HelpdeskView())
     await bot.add_cog(RegistrationHelpdesk(bot))

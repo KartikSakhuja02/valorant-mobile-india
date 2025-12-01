@@ -57,14 +57,23 @@ async def get_player(discord_id: int) -> Optional[Dict[str, Any]]:
     """Get player data and their stats."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # First check if player exists at all
+        player_exists = await conn.fetchrow("""
+            SELECT * FROM players WHERE discord_id = $1
+        """, discord_id)
+        
+        if not player_exists:
+            return None
+        
+        # Then get full data with stats
         player = await conn.fetchrow("""
             SELECT p.*, ps.kills, ps.deaths, ps.assists, 
                    ps.matches_played, ps.wins, ps.losses, ps.mvps
             FROM players p
             LEFT JOIN player_stats ps ON p.discord_id = ps.player_id
-            WHERE p.discord_id = $1 AND ps.tournament_id = 1
+            WHERE p.discord_id = $1 AND (ps.tournament_id = 1 OR ps.tournament_id IS NULL)
         """, discord_id)
-        return dict(player) if player else None
+        return dict(player) if player else dict(player_exists)
 
 async def get_player_by_ign(ign: str) -> Optional[Dict[str, Any]]:
     """Check if IGN exists (case insensitive)."""
@@ -1235,6 +1244,17 @@ async def update_scrim_match_status(match_id: int, status: str):
             SET status = $1
             WHERE id = $2
         """, status, match_id)
+
+
+async def update_scrim_match_format(match_id: int, match_type: str):
+    """Update the match type/format of a scrim match."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE scrim_matches
+            SET match_type = $1
+            WHERE id = $2
+        """, match_type, match_id)
 
 
 async def get_captain_pending_matches(captain_discord_id: int) -> list:

@@ -73,31 +73,32 @@ class OCRService:
                     
                     # Gemini prompt for profile extraction
                     prompt = """
-You are reading a VALORANT Mobile player profile screenshot.
+You are analyzing a VALORANT Mobile player profile screenshot.
 
-Extract the following information:
-1. IGN (In-Game Name) - the player's username
-2. Player ID - the numeric ID (format: 1234 or #1234)
+Your task: Extract the player's IGN (username) and Player ID (numeric ID).
 
-Return RAW JSON ONLY (no markdown):
-{
-  "ign": "PlayerName",
-  "id": "1234567"
-}
+Look for:
+- IGN: The player name/username (may be displayed at top of screen, profile section, or player card)
+- Player ID: A numeric code, may have # symbol (example: #12345 or 12345)
 
-Rules:
-- Find the player's IGN (usually displayed prominently)
-- Find the Player ID (numbers, may have # prefix)
-- Remove # from ID if present
-- If IGN not found, set to null
-- If ID not found, set to null
+Return ONLY valid JSON (no markdown, no code blocks):
+{"ign": "found_username", "id": "numeric_id"}
+
+If IGN not found: {"ign": null, "id": null}
+If ID not found: {"ign": "found_username", "id": null}
+
+Examples:
+- If you see "DarkWizard #5432" return: {"ign": "DarkWizard", "id": "5432"}
+- If you see username "ProPlayer" and ID "98765" return: {"ign": "ProPlayer", "id": "98765"}
+
+CRITICAL: Return ONLY the JSON object, nothing else.
 """
                     
-                    # Try multiple Gemini models
+                    # Try multiple Gemini models (using correct API versions)
                     models = [
+                        ("v1", "gemini-2.5-flash"),
+                        ("v1", "gemini-2.0-flash"),
                         ("v1beta", "gemini-2.0-flash-exp"),
-                        ("v1beta", "gemini-exp-1206"),
-                        ("v1beta", "gemini-1.5-pro"),
                     ]
                     
                     for version, model in models:
@@ -125,35 +126,56 @@ Rules:
                                 headers={"Content-Type": "application/json"}
                             ) as resp:
                                 if resp.status != 200:
+                                    error_text = await resp.text()
+                                    print(f"❌ Gemini API error ({model}): {resp.status} - {error_text}")
                                     continue
                                 
                                 data = await resp.json()
                                 text_response = data['candidates'][0]['content']['parts'][0]['text']
+                                print(f"🔍 Gemini response ({model}): {text_response}")
                                 
-                                # Parse JSON response
+                                # Parse JSON response - try multiple patterns
                                 import re
                                 import json
-                                json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
+                                
+                                # Try to find JSON in the response
+                                json_match = re.search(r'\{[^{}]*"ign"[^{}]*"id"[^{}]*\}', text_response, re.DOTALL)
+                                if not json_match:
+                                    # Try broader match
+                                    json_match = re.search(r'\{.*?\}', text_response, re.DOTALL)
+                                
                                 if json_match:
-                                    result = json.loads(json_match.group())
-                                    ign = result.get('ign')
-                                    player_id = result.get('id')
-                                    
-                                    # Clean up ID (remove # if present)
-                                    if player_id:
-                                        player_id = str(player_id).replace('#', '').strip()
-                                    
-                                    # Validate we got both values
-                                    if ign and player_id:
-                                        # Validate ID is numeric
-                                        try:
-                                            int(player_id)
-                                            return True, ign, player_id
-                                        except ValueError:
-                                            continue
+                                    try:
+                                        result = json.loads(json_match.group())
+                                        ign = result.get('ign')
+                                        player_id = result.get('id')
+                                        
+                                        print(f"📝 Extracted - IGN: {ign}, ID: {player_id}")
+                                        
+                                        # Clean up ID (remove # if present)
+                                        if player_id:
+                                            player_id = str(player_id).replace('#', '').strip()
+                                        
+                                        # Validate we got both values
+                                        if ign and player_id and ign != "null" and player_id != "null":
+                                            # Validate ID is numeric
+                                            try:
+                                                int(player_id)
+                                                print(f"✅ OCR Success - IGN: {ign}, ID: {player_id}")
+                                                return True, ign, player_id
+                                            except ValueError:
+                                                print(f"⚠️ ID not numeric: {player_id}")
+                                                continue
+                                        else:
+                                            print(f"⚠️ Missing IGN or ID (IGN={ign}, ID={player_id})")
+                                    except json.JSONDecodeError as e:
+                                        print(f"⚠️ JSON parse error: {e}")
+                                        continue
+                                else:
+                                    print(f"⚠️ No JSON found in response")
                         
                         except Exception as e:
-                            print(f"OCR error with {model}: {e}")
+                            print(f"❌ OCR error with {model}: {e}")
                             continue
                     
                     return False, "Could not extract IGN and ID from image", ""

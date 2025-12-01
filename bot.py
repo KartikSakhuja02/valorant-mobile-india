@@ -162,10 +162,25 @@ if __name__ == "__main__":
         # Load cogs before running the bot
         async def main():
             async with bot:
+                # Register persistent views BEFORE loading cogs
+                from cogs.registration import RegistrationView
+                from cogs.registration_helpdesk import HelpdeskView
+                bot.add_view(RegistrationView())
+                bot.add_view(HelpdeskView())
+                print("✅ Registered persistent views")
+                
                 await load_cogs()
                 await bot.start(token)
         
-        asyncio.run(main())
+        # Use asyncio.run with proper exception handling
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            print("Bot stopped by user")
+        except Exception as e:
+            print(f"Error running bot: {e}")
+            import traceback
+            traceback.print_exc()
         
     except discord.LoginFailure as e:
         print(f"Login failed: {e}. Please check your token in environment variables.")

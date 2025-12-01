@@ -36,32 +36,84 @@ class RegistrationView(discord.ui.View):
     
     @discord.ui.button(label="Screenshot Registration", style=discord.ButtonStyle.primary, custom_id="reg_screenshot")
     async def screenshot_registration(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"🔧 Screenshot Registration button clicked by {interaction.user.name}")
+        
         # Defer immediately to prevent timeout
         await interaction.response.defer(ephemeral=True)
+        print(f"✓ Interaction deferred")
         
         # Check if already registered
-        existing_player = await db.get_player(interaction.user.id)
-        if existing_player:
-            await interaction.followup.send("You are already registered!", ephemeral=True)
+        try:
+            existing_player = await db.get_player(interaction.user.id)
+            if existing_player:
+                await interaction.followup.send("You are already registered!", ephemeral=True)
+                print(f"⚠️ User {interaction.user.name} is already registered")
+                return
+        except Exception as e:
+            print(f"❌ Error checking registration: {e}")
+
+        try:
+            print(f"✓ Creating thread...")
+            # Create private thread
+            thread = await interaction.channel.create_thread(
+                name=f"Registration-{interaction.user.name}",
+                type=discord.ChannelType.private_thread
+            )
+            print(f"✓ Thread created: {thread.name} (ID: {thread.id})")
+            
+            # Add user to thread
+            # Add user to thread
+            await thread.add_user(interaction.user)
+            print(f"✓ Added {interaction.user.name} to thread")
+            
+            # Add staff members to thread
+            admin_role_id = int(cfg('ROLE_ADMINISTRATOR_ID', 0)) if cfg('ROLE_ADMINISTRATOR_ID') else None
+            staff_role_id = int(cfg('ROLE_STAFF_ID', 0)) if cfg('ROLE_STAFF_ID') else None
+            mod_role_id = int(cfg('ROLE_MODERATOR_ID', 0)) if cfg('ROLE_MODERATOR_ID') else None
+            
+            print(f"🔍 Looking for staff with role IDs: Admin={admin_role_id}, Staff={staff_role_id}, Mod={mod_role_id}")
+            
+            staff_added = 0
+            for member in interaction.guild.members:
+                # Skip the user who created the thread (already added)
+                if member.id == interaction.user.id:
+                    continue
+                    
+                should_add = False
+                
+                # Check if member has admin permission
+                if member.guild_permissions.administrator:
+                    should_add = True
+                    print(f"  👑 Found admin by permission: {member.name}")
+                
+                # Check if member has any of the staff role IDs
+                for role in member.roles:
+                    if role.id == admin_role_id:
+                        should_add = True
+                        print(f"  👑 Found admin by role: {member.name}")
+                    elif role.id == staff_role_id:
+                        should_add = True
+                        print(f"  👮 Found staff: {member.name}")
+                    elif role.id == mod_role_id:
+                        should_add = True
+                        print(f"  👮 Found moderator: {member.name}")
+                
+                if should_add:
+                    try:
+                        await thread.add_user(member)
+                        staff_added += 1
+                        print(f"  ✅ Added {member.name} to thread")
+                    except Exception as e:
+                        print(f"  ❌ Failed to add {member.name}: {e}")
+            
+            print(f"✓ Added {staff_added} staff members to thread")
+            
+            await interaction.followup.send(f"Registration started in {thread.mention}", ephemeral=True)
+            print(f"✅ Registration thread created successfully for {interaction.user.name}")
+        except Exception as e:
+            print(f"❌ Error creating registration thread: {e}")
+            await interaction.followup.send(f"❌ Error creating thread: {str(e)}", ephemeral=True)
             return
-
-        # Create private thread
-        thread = await interaction.channel.create_thread(
-            name=f"Registration-{interaction.user.name}",
-            type=discord.ChannelType.private_thread
-        )
-        
-        # Add user and admins to thread
-        await thread.add_user(interaction.user)
-        for member in interaction.guild.members:
-            if any(role.name.lower() in ['admin', 'staff', 'moderator', 'mod'] for role in member.roles) or \
-               member.guild_permissions.administrator:
-                try:
-                    await thread.add_user(member)
-                except:
-                    pass
-
-        await interaction.followup.send(f"Registration started in {thread.mention}", ephemeral=True)
         
         # Send instructions in thread
         await thread.send(
@@ -134,6 +186,160 @@ class RegistrationView(discord.ui.View):
                             await i.response.send_message("This is not your registration!", ephemeral=True)
                             return
                         
+                        # If APAC region, ask if they're Indian
+                        if r_code == "ap":
+                            await i.response.send_message("Are you from India?", ephemeral=False)
+                            
+                            india_view = discord.ui.View(timeout=300)
+                            
+                            yes_button = discord.ui.Button(label="Yes, I'm Indian", style=discord.ButtonStyle.success)
+                            no_button = discord.ui.Button(label="No", style=discord.ButtonStyle.secondary)
+                            
+                            async def india_yes_callback(india_i: discord.Interaction):
+                                if india_i.user.id != message.author.id:
+                                    await india_i.response.send_message("This is not your registration!", ephemeral=True)
+                                    return
+                                    
+                                await india_i.response.defer()
+                                
+                                try:
+                                    # Create player with APAC region
+                                    await db.create_player(
+                                        discord_id=message.author.id,
+                                        ign=ign,
+                                        player_id=int(player_id),
+                                        region="ap"
+                                    )
+                                    
+                                    initial_stats = {
+                                        "kills": 0,
+                                        "deaths": 0,
+                                        "assists": 0,
+                                        "matches_played": 0,
+                                        "wins": 0,
+                                        "losses": 0,
+                                        "mvps": 0
+                                    }
+                                    
+                                    await db.create_player_stats(message.author.id, initial_stats)
+                                    await db.update_player_leaderboard(message.author.id, ign, "ap")
+                                    await db.update_player_leaderboard_ranks()
+                                    
+                                    # Assign both APAC and India roles
+                                    role_msg = ""
+                                    if cog and isinstance(india_i.user, discord.Member):
+                                        ap_assigned = await cog.assign_region_role(india_i.user, "ap")
+                                        india_assigned = await cog.assign_region_role(india_i.user, "india")
+                                        if ap_assigned and india_assigned:
+                                            role_msg = "✅ APAC and India roles assigned!"
+                                        elif ap_assigned:
+                                            role_msg = "✅ APAC role assigned! ⚠️ Could not assign India role."
+                                        else:
+                                            role_msg = "⚠️ Could not assign region roles."
+                                    
+                                    # Send log
+                                    try:
+                                        log_channel_id = cfg('LOG_CHANNEL_ID')
+                                        if log_channel_id:
+                                            log_channel = interaction.client.get_channel(int(log_channel_id))
+                                            if log_channel:
+                                                log_embed = discord.Embed(
+                                                    title="🆕 New Player Registration (Thread - Screenshot)",
+                                                    color=discord.Color.blue(),
+                                                    timestamp=discord.utils.utcnow()
+                                                )
+                                                log_embed.add_field(name="Player", value=f"{message.author.mention} ({message.author})", inline=False)
+                                                log_embed.add_field(name="IGN", value=ign, inline=True)
+                                                log_embed.add_field(name="Player ID", value=str(player_id), inline=True)
+                                                log_embed.add_field(name="Region", value="AP (India)", inline=True)
+                                                log_embed.set_thumbnail(url=message.author.display_avatar.url)
+                                                log_embed.set_footer(text=f"User ID: {message.author.id} • Method: Thread Screenshot")
+                                                await log_channel.send(embed=log_embed)
+                                    except Exception as log_error:
+                                        print(f"Error sending registration log: {log_error}")
+                                    
+                                    await thread.send(f"✅ Registration successful! {role_msg}\nThis thread will be deleted in 10 seconds.")
+                                    await asyncio.sleep(10)
+                                    await thread.delete()
+                                    
+                                except Exception as e:
+                                    await thread.send(f"❌ Registration failed: {str(e)}")
+                                    asyncio.create_task(cog.delete_thread_after_delay(thread, 12))
+                            
+                            async def india_no_callback(india_i: discord.Interaction):
+                                if india_i.user.id != message.author.id:
+                                    await india_i.response.send_message("This is not your registration!", ephemeral=True)
+                                    return
+                                    
+                                await india_i.response.defer()
+                                
+                                try:
+                                    # Create player with APAC region only
+                                    await db.create_player(
+                                        discord_id=message.author.id,
+                                        ign=ign,
+                                        player_id=int(player_id),
+                                        region="ap"
+                                    )
+                                    
+                                    initial_stats = {
+                                        "kills": 0,
+                                        "deaths": 0,
+                                        "assists": 0,
+                                        "matches_played": 0,
+                                        "wins": 0,
+                                        "losses": 0,
+                                        "mvps": 0
+                                    }
+                                    
+                                    await db.create_player_stats(message.author.id, initial_stats)
+                                    await db.update_player_leaderboard(message.author.id, ign, "ap")
+                                    await db.update_player_leaderboard_ranks()
+                                    
+                                    # Assign only APAC role
+                                    role_msg = ""
+                                    if cog and isinstance(india_i.user, discord.Member):
+                                        ap_assigned = await cog.assign_region_role(india_i.user, "ap")
+                                        role_msg = "✅ APAC role assigned!" if ap_assigned else "⚠️ Could not assign region role."
+                                    
+                                    # Send log
+                                    try:
+                                        log_channel_id = cfg('LOG_CHANNEL_ID')
+                                        if log_channel_id:
+                                            log_channel = interaction.client.get_channel(int(log_channel_id))
+                                            if log_channel:
+                                                log_embed = discord.Embed(
+                                                    title="🆕 New Player Registration (Thread - Screenshot)",
+                                                    color=discord.Color.blue(),
+                                                    timestamp=discord.utils.utcnow()
+                                                )
+                                                log_embed.add_field(name="Player", value=f"{message.author.mention} ({message.author})", inline=False)
+                                                log_embed.add_field(name="IGN", value=ign, inline=True)
+                                                log_embed.add_field(name="Player ID", value=str(player_id), inline=True)
+                                                log_embed.add_field(name="Region", value="AP", inline=True)
+                                                log_embed.set_thumbnail(url=message.author.display_avatar.url)
+                                                log_embed.set_footer(text=f"User ID: {message.author.id} • Method: Thread Screenshot")
+                                                await log_channel.send(embed=log_embed)
+                                    except Exception as log_error:
+                                        print(f"Error sending registration log: {log_error}")
+                                    
+                                    await thread.send(f"✅ Registration successful! {role_msg}\nThis thread will be deleted in 10 seconds.")
+                                    await asyncio.sleep(10)
+                                    await thread.delete()
+                                    
+                                except Exception as e:
+                                    await thread.send(f"❌ Registration failed: {str(e)}")
+                                    asyncio.create_task(cog.delete_thread_after_delay(thread, 12))
+                            
+                            yes_button.callback = india_yes_callback
+                            no_button.callback = india_no_callback
+                            india_view.add_item(yes_button)
+                            india_view.add_item(no_button)
+                            
+                            await i.edit_original_response(view=india_view)
+                            return
+                        
+                        # For non-APAC regions, proceed normally
                         await i.response.defer()
                         
                         try:
@@ -245,32 +451,84 @@ class RegistrationView(discord.ui.View):
 
     @discord.ui.button(label="Manual Registration", style=discord.ButtonStyle.secondary, custom_id="reg_manual")
     async def manual_registration(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"🔧 Manual Registration button clicked by {interaction.user.name}")
+        
         # Defer immediately to prevent timeout
         await interaction.response.defer(ephemeral=True)
+        print(f"✓ Interaction deferred")
         
         # Check if already registered
-        existing_player = await db.get_player(interaction.user.id)
-        if existing_player:
-            await interaction.followup.send("You are already registered!", ephemeral=True)
+        try:
+            existing_player = await db.get_player(interaction.user.id)
+            if existing_player:
+                await interaction.followup.send("You are already registered!", ephemeral=True)
+                print(f"⚠️ User {interaction.user.name} is already registered")
+                return
+        except Exception as e:
+            print(f"❌ Error checking registration: {e}")
+
+        try:
+            print(f"✓ Creating thread...")
+            # Create private thread
+            thread = await interaction.channel.create_thread(
+                name=f"Registration-{interaction.user.name}",
+                type=discord.ChannelType.private_thread
+            )
+            print(f"✓ Thread created: {thread.name} (ID: {thread.id})")
+            
+            # Add user to thread
+            # Add user to thread
+            await thread.add_user(interaction.user)
+            print(f"✓ Added {interaction.user.name} to thread")
+            
+            # Add staff members to thread
+            admin_role_id = int(cfg('ROLE_ADMINISTRATOR_ID', 0)) if cfg('ROLE_ADMINISTRATOR_ID') else None
+            staff_role_id = int(cfg('ROLE_STAFF_ID', 0)) if cfg('ROLE_STAFF_ID') else None
+            mod_role_id = int(cfg('ROLE_MODERATOR_ID', 0)) if cfg('ROLE_MODERATOR_ID') else None
+            
+            print(f"🔍 Looking for staff with role IDs: Admin={admin_role_id}, Staff={staff_role_id}, Mod={mod_role_id}")
+            
+            staff_added = 0
+            for member in interaction.guild.members:
+                # Skip the user who created the thread (already added)
+                if member.id == interaction.user.id:
+                    continue
+                    
+                should_add = False
+                
+                # Check if member has admin permission
+                if member.guild_permissions.administrator:
+                    should_add = True
+                    print(f"  👑 Found admin by permission: {member.name}")
+                
+                # Check if member has any of the staff role IDs
+                for role in member.roles:
+                    if role.id == admin_role_id:
+                        should_add = True
+                        print(f"  👑 Found admin by role: {member.name}")
+                    elif role.id == staff_role_id:
+                        should_add = True
+                        print(f"  👮 Found staff: {member.name}")
+                    elif role.id == mod_role_id:
+                        should_add = True
+                        print(f"  👮 Found moderator: {member.name}")
+                
+                if should_add:
+                    try:
+                        await thread.add_user(member)
+                        staff_added += 1
+                        print(f"  ✅ Added {member.name} to thread")
+                    except Exception as e:
+                        print(f"  ❌ Failed to add {member.name}: {e}")
+            
+            print(f"✓ Added {staff_added} staff members to thread")
+
+            await interaction.followup.send(f"Registration started in {thread.mention}", ephemeral=True)
+            print(f"✅ Registration thread created successfully for {interaction.user.name}")
+        except Exception as e:
+            print(f"❌ Error creating registration thread: {e}")
+            await interaction.followup.send(f"❌ Error creating thread: {str(e)}", ephemeral=True)
             return
-
-        # Create private thread
-        thread = await interaction.channel.create_thread(
-            name=f"Registration-{interaction.user.name}",
-            type=discord.ChannelType.private_thread
-        )
-        
-        # Add user and admins to thread
-        await thread.add_user(interaction.user)
-        for member in interaction.guild.members:
-            if any(role.name.lower() in ['admin', 'staff', 'moderator', 'mod'] for role in member.roles) or \
-               member.guild_permissions.administrator:
-                try:
-                    await thread.add_user(member)
-                except:
-                    pass
-
-        await interaction.followup.send(f"Registration started in {thread.mention}", ephemeral=True)
 
         # Send instructions in thread
         await thread.send(
@@ -328,66 +586,153 @@ class RegistrationView(discord.ui.View):
 
             # Process registration
             try:
-                # Create new player in database
-                player = await db.create_player(
-                    discord_id=interaction.user.id,
-                    ign=registration_data['ign'],
-                    player_id=registration_data['id'],
-                    region=registration_data['region']
-                )
-
-                # Initialize empty stats
-                initial_stats = {
-                    "kills": 0,
-                    "deaths": 0,
-                    "assists": 0,
-                    "matches_played": 0,
-                    "wins": 0,
-                    "losses": 0,
-                    "mvps": 0
-                }
-                
-                await db.create_player_stats(interaction.user.id, initial_stats)
-                await db.update_player_leaderboard(
-                    interaction.user.id,
-                    registration_data['ign'],
-                    registration_data['region']
-                )
-                await db.update_player_leaderboard_ranks()
-                
-                # Assign region role
-                cog = interaction.client.get_cog('Registration')
-                if cog and isinstance(interaction.user, discord.Member):
-                    role_assigned = await cog.assign_region_role(interaction.user, registration_data['region'])
-                    role_msg = "✅ Region role assigned!" if role_assigned else "⚠️ Could not assign region role."
-                else:
+                # If APAC, ask if they're Indian
+                if registration_data['region'] == 'ap':
+                    await thread.send("Are you from India? (Reply: yes or no)")
+                    
+                    while True:
+                        msg = await interaction.client.wait_for(
+                            'message',
+                            timeout=300,
+                            check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+                        )
+                        response = msg.content.lower()
+                        if response in ['yes', 'no']:
+                            is_indian = (response == 'yes')
+                            break
+                        await thread.send("Please reply with 'yes' or 'no'")
+                    
+                    # Create player
+                    player = await db.create_player(
+                        discord_id=interaction.user.id,
+                        ign=registration_data['ign'],
+                        player_id=registration_data['id'],
+                        region=registration_data['region']
+                    )
+                    
+                    initial_stats = {
+                        "kills": 0,
+                        "deaths": 0,
+                        "assists": 0,
+                        "matches_played": 0,
+                        "wins": 0,
+                        "losses": 0,
+                        "mvps": 0
+                    }
+                    
+                    await db.create_player_stats(interaction.user.id, initial_stats)
+                    await db.update_player_leaderboard(
+                        interaction.user.id,
+                        registration_data['ign'],
+                        registration_data['region']
+                    )
+                    await db.update_player_leaderboard_ranks()
+                    
+                    # Assign roles
+                    cog = interaction.client.get_cog('Registration')
                     role_msg = ""
-                
-                # Send log to logs channel
-                try:
-                    log_channel_id = cfg('LOG_CHANNEL_ID')
-                    if log_channel_id:
-                        log_channel = interaction.client.get_channel(int(log_channel_id))
-                        if log_channel:
-                            log_embed = discord.Embed(
-                                title="🆕 New Player Registration (Thread - Manual)",
-                                color=discord.Color.blue(),
-                                timestamp=discord.utils.utcnow()
-                            )
-                            log_embed.add_field(name="Player", value=f"{interaction.user.mention} ({interaction.user})", inline=False)
-                            log_embed.add_field(name="IGN", value=registration_data['ign'], inline=True)
-                            log_embed.add_field(name="Player ID", value=str(registration_data['id']), inline=True)
-                            log_embed.add_field(name="Region", value=registration_data['region'].upper(), inline=True)
-                            log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
-                            log_embed.set_footer(text=f"User ID: {interaction.user.id} • Method: Thread Manual")
-                            
-                            await log_channel.send(embed=log_embed)
-                except Exception as log_error:
-                    print(f"Error sending registration log: {log_error}")
+                    if cog and isinstance(interaction.user, discord.Member):
+                        if is_indian:
+                            ap_assigned = await cog.assign_region_role(interaction.user, "ap")
+                            india_assigned = await cog.assign_region_role(interaction.user, "india")
+                            if ap_assigned and india_assigned:
+                                role_msg = "✅ APAC and India roles assigned!"
+                            elif ap_assigned:
+                                role_msg = "✅ APAC role assigned! ⚠️ Could not assign India role."
+                            else:
+                                role_msg = "⚠️ Could not assign region roles."
+                        else:
+                            ap_assigned = await cog.assign_region_role(interaction.user, "ap")
+                            role_msg = "✅ APAC role assigned!" if ap_assigned else "⚠️ Could not assign region role."
+                    
+                    # Send log
+                    try:
+                        log_channel_id = cfg('LOG_CHANNEL_ID')
+                        if log_channel_id:
+                            log_channel = interaction.client.get_channel(int(log_channel_id))
+                            if log_channel:
+                                log_embed = discord.Embed(
+                                    title="🆕 New Player Registration (Thread - Manual)",
+                                    color=discord.Color.blue(),
+                                    timestamp=discord.utils.utcnow()
+                                )
+                                log_embed.add_field(name="Player", value=f"{interaction.user.mention} ({interaction.user})", inline=False)
+                                log_embed.add_field(name="IGN", value=registration_data['ign'], inline=True)
+                                log_embed.add_field(name="Player ID", value=str(registration_data['id']), inline=True)
+                                region_display = "AP (India)" if is_indian else "AP"
+                                log_embed.add_field(name="Region", value=region_display, inline=True)
+                                log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+                                log_embed.set_footer(text=f"User ID: {interaction.user.id} • Method: Thread Manual")
+                                await log_channel.send(embed=log_embed)
+                    except Exception as log_error:
+                        print(f"Error sending registration log: {log_error}")
+                    
+                    await thread.send(f"✅ Registration successful! {role_msg}\nThis thread will be deleted in 10 seconds.")
+                    await asyncio.sleep(10)
+                    await thread.delete()
+                    
+                else:
+                    # Non-APAC regions
+                    # Create new player in database
+                    player = await db.create_player(
+                        discord_id=interaction.user.id,
+                        ign=registration_data['ign'],
+                        player_id=registration_data['id'],
+                        region=registration_data['region']
+                    )
 
-                await thread.send(f"✅ Registration successful! {role_msg}\nThis thread will be deleted in 10 seconds.")
-                await asyncio.sleep(10)
-                await thread.delete()
+                    # Initialize empty stats
+                    initial_stats = {
+                        "kills": 0,
+                        "deaths": 0,
+                        "assists": 0,
+                        "matches_played": 0,
+                        "wins": 0,
+                        "losses": 0,
+                        "mvps": 0
+                    }
+                    
+                    await db.create_player_stats(interaction.user.id, initial_stats)
+                    await db.update_player_leaderboard(
+                        interaction.user.id,
+                        registration_data['ign'],
+                        registration_data['region']
+                    )
+                    await db.update_player_leaderboard_ranks()
+                    
+                    # Assign region role
+                    cog = interaction.client.get_cog('Registration')
+                    if cog and isinstance(interaction.user, discord.Member):
+                        role_assigned = await cog.assign_region_role(interaction.user, registration_data['region'])
+                        role_msg = "✅ Region role assigned!" if role_assigned else "⚠️ Could not assign region role."
+                    else:
+                        role_msg = ""
+                    
+                    # Send log to logs channel
+                    try:
+                        log_channel_id = cfg('LOG_CHANNEL_ID')
+                        if log_channel_id:
+                            log_channel = interaction.client.get_channel(int(log_channel_id))
+                            if log_channel:
+                                log_embed = discord.Embed(
+                                    title="🆕 New Player Registration (Thread - Manual)",
+                                    color=discord.Color.blue(),
+                                    timestamp=discord.utils.utcnow()
+                                )
+                                log_embed.add_field(name="Player", value=f"{interaction.user.mention} ({interaction.user})", inline=False)
+                                log_embed.add_field(name="IGN", value=registration_data['ign'], inline=True)
+                                log_embed.add_field(name="Player ID", value=str(registration_data['id']), inline=True)
+                                log_embed.add_field(name="Region", value=registration_data['region'].upper(), inline=True)
+                                log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+                                log_embed.set_footer(text=f"User ID: {interaction.user.id} • Method: Thread Manual")
+                                
+                                await log_channel.send(embed=log_embed)
+                    except Exception as log_error:
+                        print(f"Error sending registration log: {log_error}")
+
+                    await thread.send(f"✅ Registration successful! {role_msg}\nThis thread will be deleted in 10 seconds.")
+                    await asyncio.sleep(10)
+                    await thread.delete()
 
             except Exception as e:
                 await thread.send(f"❌ Registration failed: {str(e)}")
@@ -423,6 +768,7 @@ class Registration(commands.Cog):
             'ap': int(cfg('ROLE_APAC_ID', 0)) if cfg('ROLE_APAC_ID') else None,
             'kr': int(cfg('ROLE_APAC_ID', 0)) if cfg('ROLE_APAC_ID') else None,
             'jp': int(cfg('ROLE_APAC_ID', 0)) if cfg('ROLE_APAC_ID') else None,
+            'india': int(cfg('INDIA_ROLE_ID', 0)) if cfg('INDIA_ROLE_ID') else None,
         }
     
     async def assign_region_role(self, member: discord.Member, region: str) -> bool:
@@ -819,6 +1165,4 @@ class Registration(commands.Cog):
             )
 
 async def setup(bot):
-    # Register persistent view
-    bot.add_view(RegistrationView())
     await bot.add_cog(Registration(bot))

@@ -406,159 +406,197 @@ class Profiles(commands.Cog):
         if not stats:
             stats = {}  # Use empty dict if no stats found
         
+        # Build a Discord embed with profile fields instead of sending an image
         try:
-            # Generate profile image
-            image_buffer = await self.create_profile_image(target_user, player_data, stats)
-            
-            # Send the profile
-            await interaction.followup.send(
-                f"🎮 Tournament Profile for {target_user.mention}",
-                file=discord.File(fp=image_buffer, filename='profile.png')
+            # Calculate derived stats
+            kdr = self.calculate_kdr(stats.get('kills', 0), stats.get('deaths', 0))
+            winrate = self.calculate_winrate(stats.get('wins', 0), stats.get('matches_played', 0))
+            points = self.calculate_points(stats)
+
+            profile_embed = discord.Embed(
+                title=f"🎮 Tournament Profile for {target_user.display_name}",
+                color=0x5865F2,
+                timestamp=datetime.utcnow()
             )
-            
+
+            # Thumbnail: user's avatar
+            try:
+                thumb = target_user.avatar.url if target_user.avatar else target_user.default_avatar.url
+                profile_embed.set_thumbnail(url=thumb)
+            except Exception:
+                pass
+
+            # Add core fields
+            profile_embed.add_field(name="IGN", value=player_data.get('ign', 'Unknown'), inline=True)
+            profile_embed.add_field(name="Points", value=str(points), inline=True)
+            profile_embed.add_field(name="K/D", value=f"{kdr:.2f}", inline=True)
+            profile_embed.add_field(name="Win Rate", value=f"{winrate:.1f}%", inline=True)
+            profile_embed.add_field(name="Kills / Deaths", value=f"{stats.get('kills',0)} / {stats.get('deaths',0)}", inline=True)
+            profile_embed.add_field(name="Matches Played", value=str(stats.get('matches_played', 0)), inline=True)
+            profile_embed.add_field(name="MVPs", value=str(stats.get('mvps', 0)), inline=True)
+            profile_embed.add_field(name="Discord ID", value=str(target_user.id), inline=True)
+
+            # Footer and timestamp already set; send embed
+            await interaction.followup.send(embed=profile_embed)
+
         except Exception as e:
-            await interaction.followup.send(
-                f"❌ Error generating profile: {str(e)}",
-                ephemeral=True
-            )
+            await interaction.followup.send(f"❌ Error building profile: {e}", ephemeral=True)
 
     @app_commands.command(name="team-profile", description="Displays a team's profile")
     @app_commands.describe(name="The name or tag of the team to look up")
     async def team_profile(self, interaction: discord.Interaction, name: str):
-        """Displays a team's profile."""
-        # Try to get team by name first
-        target_team = await db.get_team_by_name(name)
-        
-        # If not found by name, try searching all teams by tag
-        if not target_team:
-            all_teams = await db.get_all_teams()
-            team_id_match = None
-            for team in all_teams:
-                if team.get('tag', '').lower() == name.lower():
-                    team_id_match = team['id']
-                    break
-            
-            # If found by tag, get the full team data with members
-            if team_id_match:
-                target_team = await db.get_team_by_id(team_id_match)
-        
-        if not target_team:
-            await interaction.response.send_message(f"Team `{name}` not found. Try using the full team name or tag.", ephemeral=True)
-            return
-
+        """Displays a team's profile with Discord UI."""
         try:
-            captain = await self.bot.fetch_user(target_team['captain_id'])
-            captain_name = captain.display_name
-        except discord.NotFound:
-            captain_name = "Unknown Captain"
+            await interaction.response.defer()
+            
+            # Try to get team by name first
+            target_team = await db.get_team_by_name(name)
+            
+            # If not found by name, try searching all teams by tag
+            if not target_team:
+                all_teams = await db.get_all_teams()
+                team_id_match = None
+                for team in all_teams:
+                    if team.get('tag', '').lower() == name.lower():
+                        team_id_match = team['id']
+                        break
+                
+                # If found by tag, get the full team data with members
+                if team_id_match:
+                    target_team = await db.get_team_by_id(team_id_match)
+            
+            if not target_team:
+                await interaction.followup.send(f"❌ Team `{name}` not found. Try using the full team name or tag.", ephemeral=True)
+                return
 
-        # Extract member data from database response
-        members_data = target_team.get('members', [])
-        if isinstance(members_data, str):
-            members_data = json.loads(members_data)
-        
-        roster_igns = []
-        # Members are already returned with IGN from the database query
-        for member in members_data:
-            if isinstance(member, dict):
-                roster_igns.append(member.get('ign', 'Unknown Player'))
+            # Get captain info
+            try:
+                captain = await self.bot.fetch_user(target_team['captain_id'])
+                captain_name = f"{captain.display_name} ({captain.mention})"
+            except discord.NotFound:
+                captain_name = "Unknown Captain"
+
+            # Extract member data
+            members_data = target_team.get('members', [])
+            if isinstance(members_data, str):
+                members_data = json.loads(members_data)
+            
+            # Build roster list with player stats
+            roster_lines = []
+            for member in members_data:
+                if isinstance(member, dict):
+                    ign = member.get('ign', 'Unknown')
+                    kills = member.get('kills', 0)
+                    deaths = member.get('deaths', 0)
+                    kd = f"{kills / deaths:.2f}" if deaths > 0 else f"{kills}"
+                    roster_lines.append(f"• **{ign}** - {kills}K / {deaths}D (KD: {kd})")
+            
+            roster_str = "\n".join(roster_lines) if roster_lines else "No members found."
+
+            # Calculate stats
+            wins = target_team.get('wins', 0)
+            losses = target_team.get('losses', 0)
+            total_matches = wins + losses
+            win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
+
+            # Create main embed
+            embed = discord.Embed(
+                title=f"🏆 {target_team['name']}",
+                description=f"**Tag:** `{target_team['tag']}`\n**Captain:** {captain_name}",
+                color=discord.Color.blue(),
+                timestamp=discord.utils.utcnow()
+            )
+
+            # Set thumbnail - use team logo or default Valorant logo
+            logo_url = target_team.get("logo_url")
+            if logo_url and logo_url.startswith('http'):
+                embed.set_thumbnail(url=logo_url)
             else:
-                roster_igns.append('Unknown Player')
-        
-        roster_str = "\n".join(f"• {ign}" for ign in roster_igns) if roster_igns else "No members found."
+                # Use Valorant logo as default
+                embed.set_thumbnail(url="https://i.imgur.com/dJriIOC.png")
 
-        wins = target_team.get('wins', 0)
-        losses = target_team.get('losses', 0)
-        total_matches = wins + losses
-        win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
-
-        embed = discord.Embed(
-            title=f"{target_team['name']} [{target_team['tag']}]",
-            description=f"**Captain:** {captain_name}",
-            color=0x007ACC # Blue
-        )
-
-        logo_url = target_team.get("logo_url") or "https://i.imgur.com/pBv5DB3.png"
-        embed.set_thumbnail(url=logo_url)
-
-        # Get and display staff (managers and coach)
-        staff = await db.get_team_staff(target_team['id'])
-        staff_text = ""
-        
-        # Add managers
-        if staff.get('manager_1_id'):
-            staff_text += f"👔 **Manager 1:** <@{staff['manager_1_id']}>\n"
-        if staff.get('manager_2_id'):
-            staff_text += f"👔 **Manager 2:** <@{staff['manager_2_id']}>\n"
-        
-        # Add coach
-        if staff.get('coach_id'):
-            staff_text += f"🎓 **Coach:** <@{staff['coach_id']}>\n"
-        
-        if staff_text:
-            embed.add_field(name="📋 Staff", value=staff_text.strip(), inline=False)
-
-        embed.add_field(name="👥 Roster", value=roster_str, inline=False)
-        embed.add_field(name="🏆 Record", value=f"{wins}W - {losses}L", inline=False)
-        embed.add_field(name="📈 Win Rate", value=f"{win_rate:.2f}%", inline=True)
-        embed.add_field(name="📊 Total Matches", value=total_matches, inline=True)
-        
-        # Load and display recent matches from team_stats
-        recent_matches_str = "No matches played yet."
-        try:
-            # Get team stats which includes recent matches
-            team_stats = await db.get_team_stats(target_team['id'])
+            # Get and display staff (managers and coach)
+            staff = await db.get_team_staff(target_team['id'])
+            staff_lines = []
             
-            if team_stats and team_stats.get('recent_matches'):
-                recent_matches = team_stats['recent_matches']
-                
-                # Handle if it's a string (shouldn't be, but just in case)
-                if isinstance(recent_matches, str):
-                    recent_matches = json.loads(recent_matches)
-                
-                if recent_matches and len(recent_matches) > 0:
-                    match_lines = []
-                    # Take only first 5 matches
-                    for match in recent_matches[:5]:
-                        opponent_name = match.get('opponent_name', 'Randoms')
-                        map_name = match.get('map', 'Unknown')
-                        score_for = match.get('score_for', 0)
-                        score_against = match.get('score_against', 0)
-                        won = match.get('won', False)
-                        
-                        # Determine result icon
-                        result_icon = "✅" if won else "❌"
-                        
-                        # Format: ✅ Team A vs Team B\n └ Map: Ascent | Score: 13-11
-                        # We need to show this team's name vs opponent
-                        team_display = f"{target_team['name']} [{target_team['tag']}]"
-                        match_lines.append(
-                            f"{result_icon} **{team_display}** vs **{opponent_name}**\n"
-                            f"└ **Map:** {map_name} | **Score:** {score_for}-{score_against}"
-                        )
-                    
-                    recent_matches_str = "\n\n".join(match_lines)
-        except Exception as e:
-            print(f"Error loading team matches: {e}")
+            if staff.get('manager_1_id'):
+                try:
+                    manager1 = await self.bot.fetch_user(staff['manager_1_id'])
+                    staff_lines.append(f"👔 **Manager 1:** {manager1.mention}")
+                except:
+                    staff_lines.append(f"👔 **Manager 1:** <@{staff['manager_1_id']}>")
+            
+            if staff.get('manager_2_id'):
+                try:
+                    manager2 = await self.bot.fetch_user(staff['manager_2_id'])
+                    staff_lines.append(f"👔 **Manager 2:** {manager2.mention}")
+                except:
+                    staff_lines.append(f"👔 **Manager 2:** <@{staff['manager_2_id']}>")
+            
+            if staff.get('coach_id'):
+                try:
+                    coach = await self.bot.fetch_user(staff['coach_id'])
+                    staff_lines.append(f"🎓 **Coach:** {coach.mention}")
+                except:
+                    staff_lines.append(f"🎓 **Coach:** <@{staff['coach_id']}>")
+            
+            if staff_lines:
+                embed.add_field(name="📋 Staff", value="\n".join(staff_lines), inline=False)
+
+            # Add roster
+            embed.add_field(name=f"👥 Roster ({len(roster_lines)} players)", value=roster_str[:1024], inline=False)
+            
+            # Add stats
+            stats_text = f"**Wins:** {wins}\n**Losses:** {losses}\n**Total Matches:** {total_matches}\n**Win Rate:** {win_rate:.1f}%"
+            embed.add_field(name="📊 Team Stats", value=stats_text, inline=True)
+            
+            # Add region
+            region = target_team.get('region', 'Unknown').upper()
+            embed.add_field(name="🌍 Region", value=region, inline=True)
+            
+            # Load and display recent matches
             recent_matches_str = "No matches played yet."
-        
-        embed.add_field(name="\u200b", value="__**Recent Matches**__", inline=False)
-        embed.add_field(name=recent_matches_str, value="\u200b", inline=False)
+            try:
+                team_stats = await db.get_team_stats(target_team['id'])
+                
+                if team_stats and team_stats.get('recent_matches'):
+                    recent_matches = team_stats['recent_matches']
+                    
+                    if isinstance(recent_matches, str):
+                        recent_matches = json.loads(recent_matches)
+                    
+                    if recent_matches and len(recent_matches) > 0:
+                        match_lines = []
+                        for match in recent_matches[:5]:
+                            opponent_name = match.get('opponent_name', 'Unknown')
+                            score_for = match.get('score_for', 0)
+                            score_against = match.get('score_against', 0)
+                            won = match.get('won', False)
+                            
+                            result_icon = "✅" if won else "❌"
+                            match_lines.append(f"{result_icon} vs **{opponent_name}** - {score_for}:{score_against}")
+                        
+                        recent_matches_str = "\n".join(match_lines)
+            except Exception as e:
+                print(f"Error loading recent matches: {e}")
+            
+            embed.add_field(name="🎮 Recent Matches", value=recent_matches_str[:1024], inline=False)
+            
+            # Add footer
+            created_at = target_team.get('created_at')
+            if created_at:
+                embed.set_footer(text=f"Team ID: {target_team['id']} • Created")
+                embed.timestamp = created_at
+            else:
+                embed.set_footer(text=f"Team ID: {target_team['id']}")
 
-        bot_avatar_url = self.bot.user.avatar.url if self.bot.user.avatar else None
-        embed.set_footer(text="VEGA ASSASSINS", icon_url=bot_avatar_url)
-        embed.timestamp = datetime.utcnow()
+            await interaction.followup.send(embed=embed)
 
-        # Check if user is captain or manager - add edit button
-        user_id = interaction.user.id
-        is_captain = user_id == target_team['captain_id']
-        is_manager = user_id == staff.get('manager_1_id') or user_id == staff.get('manager_2_id')
-        
-        if is_captain or is_manager:
-            view = TeamProfileEditView(target_team, staff, is_captain)
-            await interaction.response.send_message(embed=embed, view=view)
-        else:
-            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error building team profile: {e}", ephemeral=True)
+            print(f"Team profile error: {e}")
+            import traceback
+            traceback.print_exc()
 
 class TeamProfileEditView(discord.ui.View):
     """Edit view for team profile - Captain and Managers only."""
