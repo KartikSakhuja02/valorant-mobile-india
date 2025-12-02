@@ -1040,8 +1040,14 @@ class OCRScanner(commands.Cog):
             scores = result.get('score', {})
             players = result.get('players', [])
             
-            if not players or len(players) < 10:
-                await interaction.followup.send("❌ Could not extract all player data. Please ensure the screenshot is clear and shows all 10 players.")
+            print(f"📊 Extracted data - Map: {map_name}, Scores: {scores}, Players: {len(players)}")
+            
+            if not players:
+                await interaction.followup.send("❌ Could not extract player data. Please ensure the screenshot is clear and shows the full scoreboard.")
+                return
+            
+            if len(players) < 10:
+                await interaction.followup.send(f"⚠️ Only extracted {len(players)} players. Expected 10 players. Please ensure the screenshot shows all players clearly.\n\nTip: Make sure the screenshot is from the end-game scoreboard, not mid-match.")
                 return
             
             # Determine teams and winner
@@ -1132,10 +1138,17 @@ class OCRScanner(commands.Cog):
         """Extract match data using Gemini API"""
         try:
             # Use the existing Gemini OCR function
-            result = await call_gemini_with_retry(png_bytes, GEMINI_API_KEY, max_attempts=3)
-            return result
+            raw_response = await call_gemini_with_retry(png_bytes, GEMINI_API_KEY, max_attempts=3)
+            
+            # Parse the response to extract JSON
+            parsed_data = parse_gemini_payload(raw_response)
+            
+            print(f"🔍 Parsed match data: {parsed_data}")
+            return parsed_data
         except Exception as e:
             print(f"Gemini extraction error: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
 # ---- setup
