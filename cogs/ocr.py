@@ -507,77 +507,84 @@ def _build_agent_guide() -> str:
 - Vyse: METALLIC/SILVER theme, rose/flower motifs, precise geometric patterns, elegant tech aesthetic
 """
 
-# Build the prompt - NO AGENT DETECTION, FOCUS ON PLAYER ROWS
+# Build the prompt - WITH TEAM COLOR DETECTION
 PROMPT_TEMPLATE = """
-You are reading a VALORANT Mobile scoreboard screenshot. FOCUS CAREFULLY on identifying the agent icons.
+You are reading a VALORANT Mobile END-GAME scoreboard screenshot.
 
-IMPORTANT: There are exactly 10 player rows in the scoreboard. Each row shows:
-- A small circular AGENT PORTRAIT ICON on the far left (THIS IS CRITICAL - LOOK CLOSELY AT THESE ICONS)
-- Player IGN (in-game name)
-- K/D/A stats in format "kills / deaths / assists"
+CRITICAL TEAM IDENTIFICATION:
+- Players are divided into TWO TEAMS by background color
+- GREEN/TEAL background = Team A (winning team, top of scoreboard)
+- RED/PINK background = Team B (losing team, bottom of scoreboard)
+- Each team has exactly 5 players
+- You MUST identify which players have green backgrounds and which have red backgrounds
 
-AGENT IDENTIFICATION IS CRUCIAL:
-- The circular portrait on the LEFT of each player's name shows their agent
-- Look at the icon's colors, design, and character features carefully
-- If you're unsure between similar agents, make your best educated guess
-- Common similar agents: Jett vs Neon, Sage vs Skye, Omen vs Harbor
+For EACH of the 10 players, extract:
+1. Team color (green or red background)
+2. Agent (look at the circular portrait icon on the LEFT)
+3. IGN (in-game name)
+4. K/D/A stats (kills / deaths / assists)
 
-IGNORE everything else: match time, date, buttons, headers, etc.
+AGENT IDENTIFICATION - LOOK AT THE CIRCULAR PORTRAIT ICON:
+- Examine the character's face, hair color, outfit, and distinctive features
+- Pay attention to color schemes and themes
+- Common confusions to avoid:
+  * Jett (white/blue hair, young female) vs Neon (electric blue, different hairstyle)
+  * Sage (black hair with ice ornaments, calm) vs Skye (blonde, nature theme)
+  * Omen (dark ghost, no face visible) vs Harbor (water theme, face visible)
+  * Phoenix (fire theme, confident smirk) vs Raze (explosives, paint theme)
 
 Return RAW JSON ONLY (no markdown), exactly like:
 {{
-  "map": "Ascent",
-  "score": {{"top": 13, "bottom": 9}},
-  "players": [
-    {{"ign":"Chiku.Zr","agent":"Jett","kills":16,"deaths":10,"assists":7}},
-    {{"ign":"Andyyyyy","agent":"Sage","kills":13,"deaths":8,"assists":4}},
-    {{"ign":"DarkWiz.Zr","agent":"Phoenix","kills":13,"deaths":8,"assists":6}},
-    {{"ign":"Kan4Ki","agent":"Reyna","kills":12,"deaths":13,"assists":3}},
-    {{"ign":"SPNX.kirmada","agent":"Raze","kills":12,"deaths":10,"assists":2}},
-    {{"ign":"Remz.Zr","agent":"Omen","kills":9,"deaths":9,"assists":8}},
-    {{"ign":"Fateh.Zr","agent":"Brimstone","kills":8,"deaths":9,"assists":4}},
-    {{"ign":"Zanis7","agent":"Viper","kills":6,"deaths":13,"assists":4}},
-    {{"ign":"Ir0nic","agent":"Cypher","kills":7,"deaths":13,"assists":2}},
-    {{"ign":"~ZensU","agent":"Sova","kills":7,"deaths":10,"assists":1}}
+  "map": "Haven",
+  "score": {{"team_a": 10, "team_b": 3}},
+  "team_a": [
+    {{"ign":"LeanON","agent":"Jett","kills":20,"deaths":6,"assists":4}},
+    {{"ign":"Kami.1","agent":"Sage","kills":16,"deaths":9,"assists":3}},
+    {{"ign":"Kevin09","agent":"Omen","kills":10,"deaths":5,"assists":3}},
+    {{"ign":"Scrat","agent":"Killjoy","kills":8,"deaths":8,"assists":3}},
+    {{"ign":"Katana国王","agent":"Cypher","kills":5,"deaths":7,"assists":5}}
+  ],
+  "team_b": [
+    {{"ign":"ShankSs","agent":"Fade","kills":14,"deaths":12,"assists":0}},
+    {{"ign":"InfinityOp","agent":"Reyna","kills":6,"deaths":12,"assists":3}},
+    {{"ign":"大陆","agent":"Raze","kills":7,"deaths":13,"assists":2}},
+    {{"ign":"BELIEVEog","agent":"Breach","kills":7,"deaths":11,"assists":2}},
+    {{"ign":"BStarAJ","agent":"Phoenix","kills":1,"deaths":11,"assists":1}}
   ]
 }}
 
-AVAILABLE VALORANT AGENTS (use exact spelling - case sensitive):
-DUELISTS (aggressive, damage dealers):
-- Jett (white/blue, wind theme, knife)
-- Phoenix (orange/red, fire theme)
-- Reyna (purple, soul theme)
-- Raze (orange/yellow, explosives)
-- Yoru (blue, rift walker)
-- Neon (electric blue, lightning)
-- Iso (purple/blue shield)
+AVAILABLE VALORANT AGENTS (use exact spelling):
+DUELISTS: Jett, Phoenix, Reyna, Raze, Yoru, Neon, Iso
+INITIATORS: Sova, Breach, Skye, KAY/O, Fade, Gekko
+CONTROLLERS: Brimstone, Omen, Viper, Astra, Harbor, Clove
+SENTINELS: Sage, Cypher, Killjoy, Chamber, Deadlock, Vyse
 
-INITIATORS (gather intel, start fights):
-- Sova (blue, bow and arrow)
-- Breach (orange, mechanical arms)
-- Skye (green, nature/healing)
-- KAY/O (gray/blue, robotic)
-- Fade (dark purple, nightmare)
-- Gekko (green/yellow, creatures)
-
-CONTROLLERS (smoke, area denial):
-- Brimstone (orange, military, orbital)
-- Omen (dark blue/black, ghost)
-- Viper (green, poison/toxic)
-- Astra (purple/cosmic, stars)
-- Harbor (teal/cyan, water)
-- Clove (pink/purple, Scottish)
-
-SENTINELS (defense, support):
-- Sage (white/ice blue, healing)
-- Cypher (tan/brown, surveillance)
-- Killjoy (yellow, tech/turrets)
-- Chamber (gold/white, businessman)
-- Deadlock (gray/white, Norwegian)
-- Vyse (blue/silver, metallic)
-
-AGENT IDENTIFICATION TIPS:
-- Jett: Distinctive white/light blue hair, wind motif
+KEY AGENT VISUAL IDENTIFIERS:
+- Jett: White/light blue hair, young Asian female, wind/cloud theme
+- Sage: Black hair with ice ornaments, traditional Chinese outfit, calm healer
+- Omen: Dark ghost/shadow, NO VISIBLE FACE, purple/dark blue
+- Phoenix: Fire theme, orange/red, British male with confident expression
+- Reyna: Purple theme, Mexican female, soul/vampire aesthetic
+- Raze: Orange/yellow, Brazilian female, explosives and paint
+- Cypher: FULL FACE MASK (no face visible!), tan/brown spy outfit, hat
+- Fade: Dark purple/black, Turkish female, nightmare creatures theme
+- Killjoy: Bright yellow jacket, glasses, German tech genius
+- Sova: Blue tactical gear, Russian male with bow, blonde/light hair
+- Breach: Orange/brown, Swedish male, mechanical arms, bald
+- Skye: Green nature theme, Australian female, blonde, healing/animals
+- Viper: Green toxic/poison theme, American female, snake motif
+- Brimstone: Orange military outfit, older American male, orbital abilities
+- Harbor: Teal/cyan water theme, Indian male, water control
+- Astra: Purple cosmic theme, Ghanaian female, stars and space
+- Chamber: Gold/white businessman suit, French male, elegant
+- Neon: Electric blue, Filipino female, lightning/speed theme
+- Yoru: Blue rift walker, Japanese male, dimensional theme
+- KAY/O: Gray/blue robot, mechanical, no organic face
+- Deadlock: Gray/white Norwegian female, bear trap theme
+- Gekko: Green/yellow, American Latino male, creatures/pets
+- Clove: Pink/purple Scottish, immortality theme
+- Vyse: Blue/silver metallic, rose/flower motifs
+- Iso: Purple/blue shield barrier theme, Chinese male
 - Sage: Long black hair with white/ice theme
 - Phoenix: Bright orange/red, flame design
 - Reyna: Purple eyes prominent, soul collector
@@ -1038,89 +1045,97 @@ class OCRScanner(commands.Cog):
             # Parse the results
             map_name = result.get('map', 'Unknown')
             scores = result.get('score', {})
-            players = result.get('players', [])
             
-            print(f"📊 Extracted data - Map: {map_name}, Scores: {scores}, Players: {len(players)}")
+            # Handle both old format (players array) and new format (team_a/team_b)
+            team_a = result.get('team_a', [])
+            team_b = result.get('team_b', [])
             
-            if not players:
-                await interaction.followup.send("❌ Could not extract player data. Please ensure the screenshot is clear and shows the full scoreboard.")
+            # Fallback to old format if new format not present
+            if not team_a and not team_b:
+                players = result.get('players', [])
+                if players and len(players) >= 10:
+                    team_a = players[:5]
+                    team_b = players[5:10]
+                    scores = result.get('score', {'top': 0, 'bottom': 0})
+                    team_a_score = scores.get('top', 0)
+                    team_b_score = scores.get('bottom', 0)
+            else:
+                team_a_score = scores.get('team_a', 0)
+                team_b_score = scores.get('team_b', 0)
+            
+            print(f"📊 Extracted data - Map: {map_name}, Team A: {len(team_a)} players, Team B: {len(team_b)} players")
+            
+            if not team_a or not team_b:
+                await interaction.followup.send("❌ Could not extract team data. Please ensure the screenshot is clear and shows the full scoreboard with team colors visible.")
                 return
             
-            if len(players) < 10:
-                await interaction.followup.send(f"⚠️ Only extracted {len(players)} players. Expected 10 players. Please ensure the screenshot shows all players clearly.\n\nTip: Make sure the screenshot is from the end-game scoreboard, not mid-match.")
+            if len(team_a) < 5 or len(team_b) < 5:
+                await interaction.followup.send(f"⚠️ Incomplete teams extracted (Team A: {len(team_a)}, Team B: {len(team_b)}). Expected 5 players each.\n\nTip: Make sure the screenshot shows all players with their colored backgrounds (green/red) visible.")
                 return
-            
-            # Determine teams and winner
-            top_score = scores.get('top', 0)
-            bottom_score = scores.get('bottom', 0)
-            
-            # Split players into teams (first 5 = top team, last 5 = bottom team)
-            team_a = players[:5]
-            team_b = players[5:10]
-            
-            # Calculate team totals
-            team_a_kills = sum(p['kills'] for p in team_a)
-            team_a_deaths = sum(p['deaths'] for p in team_a)
-            team_a_assists = sum(p['assists'] for p in team_a)
-            
-            team_b_kills = sum(p['kills'] for p in team_b)
-            team_b_deaths = sum(p['deaths'] for p in team_b)
-            team_b_assists = sum(p['assists'] for p in team_b)
             
             # Determine winner
-            winner = "Team A" if top_score > bottom_score else "Team B"
-            winning_team = team_a if top_score > bottom_score else team_b
-            losing_team = team_b if top_score > bottom_score else team_a
+            winner = "Team A (Green)" if team_a_score > team_b_score else "Team B (Red)"
+            winning_team = team_a if team_a_score > team_b_score else team_b
+            losing_team = team_b if team_a_score > team_b_score else team_a
             
-            # Find MVP (highest K/D ratio with minimum 5 kills)
+            # Find MVP (player with most kills in winning team)
             mvp = None
-            best_kd = 0
-            for player in players:
-                if player['kills'] >= 5:
-                    kd = player['kills'] / max(player['deaths'], 1)
-                    if kd > best_kd:
-                        best_kd = kd
-                        mvp = player
+            max_kills = -1
+            for player in winning_team:
+                kills = player.get('kills', 0)
+                if kills > max_kills:
+                    max_kills = kills
+                    mvp = player
             
-            # Create detailed embed
+            # Create embed
             embed = discord.Embed(
-                title=f"📊 Match Analysis - {map_name}",
-                description=f"**Final Score: {top_score} - {bottom_score}**\n🏆 Winner: **{winner}**",
-                color=0x00FF00 if winner == "Team A" else 0xFF0000
+                title="📊 Match Analysis",
+                description=f"**Map:** {map_name}\n**Score:** {team_a_score} - {team_b_score}\n**Winner:** {winner}",
+                color=discord.Color.green()
             )
             
-            # Team A stats
+            # Team A (Green)
             team_a_text = ""
-            for p in team_a:
-                kd_ratio = p['kills'] / max(p['deaths'], 1)
-                team_a_text += f"**{p['ign']}** ({p['agent']})\n"
-                team_a_text += f"  {p['kills']} / {p['deaths']} / {p['assists']} (K/D: {kd_ratio:.2f})\n"
+            for player in team_a:
+                name = player.get('name', 'Unknown')
+                agent = player.get('agent', 'Unknown')
+                kills = player.get('kills', 0)
+                deaths = player.get('deaths', 0)
+                assists = player.get('assists', 0)
+                acs = player.get('acs', 0)
+                
+                # Add star for MVP
+                star = " ⭐" if mvp and player.get('name') == mvp.get('name') else ""
+                team_a_text += f"**{name}** ({agent}){star}\n`{kills}K/{deaths}D/{assists}A | ACS: {acs}`\n"
             
             embed.add_field(
-                name=f"🔵 Team A - {top_score} rounds",
-                value=f"{team_a_text}\n**Totals:** {team_a_kills}K / {team_a_deaths}D / {team_a_assists}A",
+                name=f"🟢 Team A (Green) - {team_a_score}",
+                value=team_a_text or "No data",
                 inline=False
             )
             
-            # Team B stats
+            # Team B (Red)
             team_b_text = ""
-            for p in team_b:
-                kd_ratio = p['kills'] / max(p['deaths'], 1)
-                team_b_text += f"**{p['ign']}** ({p['agent']})\n"
-                team_b_text += f"  {p['kills']} / {p['deaths']} / {p['assists']} (K/D: {kd_ratio:.2f})\n"
+            for player in team_b:
+                name = player.get('name', 'Unknown')
+                agent = player.get('agent', 'Unknown')
+                kills = player.get('kills', 0)
+                deaths = player.get('deaths', 0)
+                assists = player.get('assists', 0)
+                acs = player.get('acs', 0)
+                team_b_text += f"**{name}** ({agent})\n`{kills}K/{deaths}D/{assists}A | ACS: {acs}`\n"
             
             embed.add_field(
-                name=f"🔴 Team B - {bottom_score} rounds",
-                value=f"{team_b_text}\n**Totals:** {team_b_kills}K / {team_b_deaths}D / {team_b_assists}A",
+                name=f"🔴 Team B (Red) - {team_b_score}",
+                value=team_b_text or "No data",
                 inline=False
             )
             
             # MVP
             if mvp:
-                mvp_kd = mvp['kills'] / max(mvp['deaths'], 1)
                 embed.add_field(
                     name="⭐ Match MVP",
-                    value=f"**{mvp['ign']}** ({mvp['agent']})\n{mvp['kills']}/{mvp['deaths']}/{mvp['assists']} (K/D: {mvp_kd:.2f})",
+                    value=f"**{mvp.get('name', 'Unknown')}** ({mvp.get('agent', 'Unknown')})\n`{mvp.get('kills', 0)}K/{mvp.get('deaths', 0)}D/{mvp.get('assists', 0)}A | ACS: {mvp.get('acs', 0)}`",
                     inline=False
                 )
             
