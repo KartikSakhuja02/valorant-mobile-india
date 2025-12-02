@@ -1097,7 +1097,7 @@ class OCRScanner(commands.Cog):
             # Team A (Green)
             team_a_text = ""
             for player in team_a:
-                name = player.get('name', 'Unknown')
+                name = player.get('ign', player.get('name', 'Unknown'))
                 agent = player.get('agent', 'Unknown')
                 kills = player.get('kills', 0)
                 deaths = player.get('deaths', 0)
@@ -1105,7 +1105,7 @@ class OCRScanner(commands.Cog):
                 acs = player.get('acs', 0)
                 
                 # Add star for MVP
-                star = " ⭐" if mvp and player.get('name') == mvp.get('name') else ""
+                star = " ⭐" if mvp and player.get('ign', player.get('name')) == mvp.get('ign', mvp.get('name')) else ""
                 team_a_text += f"**{name}** ({agent}){star}\n`{kills}K/{deaths}D/{assists}A | ACS: {acs}`\n"
             
             embed.add_field(
@@ -1117,7 +1117,7 @@ class OCRScanner(commands.Cog):
             # Team B (Red)
             team_b_text = ""
             for player in team_b:
-                name = player.get('name', 'Unknown')
+                name = player.get('ign', player.get('name', 'Unknown'))
                 agent = player.get('agent', 'Unknown')
                 kills = player.get('kills', 0)
                 deaths = player.get('deaths', 0)
@@ -1135,7 +1135,7 @@ class OCRScanner(commands.Cog):
             if mvp:
                 embed.add_field(
                     name="⭐ Match MVP",
-                    value=f"**{mvp.get('name', 'Unknown')}** ({mvp.get('agent', 'Unknown')})\n`{mvp.get('kills', 0)}K/{mvp.get('deaths', 0)}D/{mvp.get('assists', 0)}A | ACS: {mvp.get('acs', 0)}`",
+                    value=f"**{mvp.get('ign', mvp.get('name', 'Unknown'))}** ({mvp.get('agent', 'Unknown')})\n`{mvp.get('kills', 0)}K/{mvp.get('deaths', 0)}D/{mvp.get('assists', 0)}A | ACS: {mvp.get('acs', 0)}`",
                     inline=False
                 )
             
