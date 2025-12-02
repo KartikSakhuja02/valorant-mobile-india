@@ -2471,7 +2471,7 @@ class Scrim(commands.Cog):
         await captain_1.send(embed=embed)
         await captain_2.send(embed=embed)
         
-        # Also send to LFS channel
+        # Send to LFS channel
         lfs_channel_id = os.getenv('LFS_CHANNEL_ID')
         if lfs_channel_id:
             lfs_channel = self.bot.get_channel(int(lfs_channel_id))
@@ -2481,6 +2481,50 @@ class Scrim(commands.Cog):
                     f"**{match_data['team_a_name']}** vs **{match_data['team_b_name']}**",
                     embed=embed
                 )
+        
+        # Send to bot logs channel
+        log_channel_id = os.getenv('LOG_CHANNEL_ID')
+        if log_channel_id:
+            log_channel = self.bot.get_channel(int(log_channel_id))
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="🎮 Scrim Match - Veto Complete",
+                    description=f"**{match_data['team_a_name']}** vs **{match_data['team_b_name']}**",
+                    color=0x00FF00,
+                    timestamp=discord.utils.utcnow()
+                )
+                log_embed.add_field(
+                    name="👥 Teams",
+                    value=f"**Team A:** {match_data['team_a_name']}\n**Team B:** {match_data['team_b_name']}",
+                    inline=False
+                )
+                log_embed.add_field(
+                    name="📋 Format",
+                    value=match_data['format'].upper(),
+                    inline=True
+                )
+                log_embed.add_field(
+                    name="🌍 Region",
+                    value=match['region'].upper(),
+                    inline=True
+                )
+                if match_data['banned_maps']:
+                    log_embed.add_field(
+                        name="🚫 Banned Maps",
+                        value=", ".join(match_data['banned_maps']),
+                        inline=False
+                    )
+                log_embed.add_field(
+                    name="🗺️ Map Pool",
+                    value=maps_text,
+                    inline=False
+                )
+                log_embed.set_footer(text=f"Match ID: {match['id']}")
+                
+                await log_channel.send(embed=log_embed)
+        
+        # Send completion check to both captains
+        await self.send_completion_check(match, captain_1, captain_2)
     
     async def send_ban_ui(self, match: dict, current_banner: discord.User, other_captain: discord.User, available_maps: list, ban_count: int, total_bans: int):
         """Send map ban UI to current banner"""
