@@ -40,8 +40,11 @@ class YOLOAgentDetector:
         
         # Load YOLO model
         print(f"Loading YOLO model from {self.model_path}...")
-        self.model = YOLO(str(self.model_path))
-        print("✅ YOLO model loaded successfully")
+        try:
+            self.model = YOLO(str(self.model_path))
+            print("✅ YOLO model loaded successfully")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load YOLO model: {e}. The model file may be corrupted. Please retrain or download a valid model.")
         
         # Agent name mapping (YOLO class index -> Agent name)
         # This should match your training labels

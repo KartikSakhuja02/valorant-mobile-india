@@ -49,7 +49,8 @@ from services import db  # Add database import
 from services.yolo_agent_detector import get_yolo_agent_detector  # YOLO for agent detection
 from services.gemini_agent_detector import get_gemini_agent_detector  # Gemini Vision API
 from services.hybrid_agent_detector import get_hybrid_agent_detector  # Hybrid detector (YOLO + Gemini + JSON)
-# from services.template_agent_detector import TemplateAgentDetector  # Not used  # Template matching detector
+# Template detector not implemented - commented out to avoid import errors
+# from services.template_agent_detector import TemplateAgentDetector
 from services.roboflow_agent_detector import RoboflowAgentDetector
 from services.roboflow_agent_detector import get_roboflow_agent_detector  # Roboflow hosted workflow detector
 
@@ -951,17 +952,17 @@ class OCRScanner(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         
-        # Initialize Template Matching detector (HIGHEST PRIORITY - 100% accurate)
+        # Template Matching detector - DISABLED (not implemented yet)
         self.template_detector = None
-        try:
-            self.template_detector = TemplateAgentDetector()
-            if len(self.template_detector.templates) > 0:
-                print(f"✅ Template Agent Detector initialized with {len(self.template_detector.templates)} templates")
-            else:
-                print("⚠️ Template Detector loaded but no templates found")
-                self.template_detector = None
-        except Exception as e:
-            print(f"⚠️ Template Detector failed to load: {e}")
+        # try:
+        #     self.template_detector = TemplateAgentDetector()
+        #     if len(self.template_detector.templates) > 0:
+        #         print(f"✅ Template Agent Detector initialized with {len(self.template_detector.templates)} templates")
+        #     else:
+        #         print("⚠️ Template Detector loaded but no templates found")
+        #         self.template_detector = None
+        # except Exception as e:
+        #     print(f"⚠️ Template Detector failed to load: {e}")
         
         # Initialize YOLO agent detector
         self.yolo_detector = None
