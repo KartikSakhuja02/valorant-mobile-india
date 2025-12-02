@@ -1950,8 +1950,13 @@ class Scrim(commands.Cog):
             
             # Check if we're waiting for a screenshot from this captain
             if hasattr(self, 'awaiting_screenshots'):
-                for match_id, data in self.awaiting_screenshots.items():
-                    if captain_id in [data['captain_1'], data['captain_2']] and captain_id not in data['received']:
+                for match_id, data in list(self.awaiting_screenshots.items()):
+                    if captain_id in [data['captain_1'], data['captain_2']]:
+                        # Check if this captain already submitted
+                        if captain_id in data['received']:
+                            await message.channel.send("⚠️ You've already submitted your screenshot! Waiting for the other captain...")
+                            return
+                        
                         # Check if message has attachments
                         if message.attachments:
                             screenshot = message.attachments[0]
@@ -1967,12 +1972,14 @@ class Scrim(commands.Cog):
                                 data['received'].add(captain_id)
                                 
                                 await message.add_reaction("✅")
-                                await message.channel.send("✅ Screenshot received! Waiting for the other captain...")
                                 
                                 # Check if both screenshots received
                                 if len(data['received']) == 2:
+                                    await message.channel.send("✅ Screenshot received! Both screenshots received, processing...")
                                     # Both received, validate and extract scores
                                     await self.process_screenshots(match_id)
+                                else:
+                                    await message.channel.send("✅ Screenshot received! Waiting for the other captain...")
                                 
                                 return
             
@@ -2930,24 +2937,156 @@ class Scrim(commands.Cog):
         print(f"❌ Scrim match {match_id} cancelled by both captains")
     
     async def validate_scrim_screenshots(self, match_id: int, screenshot_1, screenshot_2):
-        """Validate screenshots and extract scores"""
-        # This would use OCR service similar to registration
-        # For now, we'll implement a basic version
+        """Validate screenshots and extract scores using Gemini OCR"""
+        import aiohttp
+        import base64
+        from io import BytesIO
+        from PIL import Image
         
-        # TODO: Implement actual screenshot processing with OCR
-        # 1. Download both screenshots
-        # 2. Use OCR to extract player names
-        # 3. Compare against team rosters
-        # 4. Extract scores
-        # 5. Return validation result
-        
-        # Placeholder return
-        return {
-            'valid': True,
-            'team_1_score': 13,
-            'team_2_score': 11,
-            'map': 'Haven'
-        }
+        try:
+            gemini_api_key = os.getenv('GEMINI_API_KEY')
+            if not gemini_api_key:
+                return {'valid': False, 'error': 'Gemini API key not configured'}
+            
+            # Download and process first screenshot
+            async with aiohttp.ClientSession() as session:
+                async with session.get(screenshot_1.url) as response:
+                    if response.status != 200:
+                        return {'valid': False, 'error': 'Failed to download screenshot'}
+                    
+                    image_data = await response.read()
+                    image = Image.open(BytesIO(image_data))
+                    
+                    # Resize if too large
+                    max_size = 1600
+                    if max(image.size) > max_size:
+                        ratio = max_size / max(image.size)
+                        new_size = tuple(int(dim * ratio) for dim in image.size)
+                        image = image.resize(new_size, Image.LANCZOS)
+                    
+                    # Convert to base64
+                    buffered = BytesIO()
+                    image.save(buffered, format="PNG")
+                    img_str = base64.b64encode(buffered.getvalue()).decode()
+                    
+                    # Gemini prompt for scoreboard extraction
+                    prompt = """You are analyzing a VALORANT Mobile end-game scoreboard screenshot.
+
+Your task: Extract the final match score and map name.
+
+Look for:
+- The large score numbers at the top (e.g., "10 获胜 3" or "13 : 11")
+- The first number is the WINNING team's score
+- The second number is the LOSING team's score  
+- Map name (e.g., Haven, Ascent, Bind, etc.)
+
+In the image, look for:
+- Large colored numbers at the top center showing the score
+- The winning team's score is usually on the LEFT and larger/highlighted
+- The losing team's score is on the RIGHT
+
+Return ONLY valid JSON (no markdown, no code blocks):
+{"winner_score": winning_team_number, "loser_score": losing_team_number, "map": "map_name"}
+
+Example: If you see "10 获胜 3" or "10 : 3", return: {"winner_score": 10, "loser_score": 3, "map": "Haven"}
+Example: If you see "13 获胜 11", return: {"winner_score": 13, "loser_score": 11, "map": "Bind"}
+
+CRITICAL: Return ONLY the JSON object, nothing else."""
+                    
+                    # Try Gemini API
+                    models = [
+                        ("v1", "gemini-2.0-flash-exp"),
+                        ("v1beta", "gemini-2.0-flash-exp"),
+                        ("v1", "gemini-1.5-flash"),
+                    ]
+                    
+                    for version, model in models:
+                        try:
+                            url = f"https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent"
+                            
+                            payload = {
+                                "contents": [{
+                                    "parts": [
+                                        {"text": prompt},
+                                        {
+                                            "inline_data": {
+                                                "mime_type": "image/png",
+                                                "data": img_str
+                                            }
+                                        }
+                                    ]
+                                }]
+                            }
+                            
+                            async with session.post(
+                                url,
+                                params={"key": gemini_api_key},
+                                json=payload,
+                                headers={"Content-Type": "application/json"}
+                            ) as resp:
+                                if resp.status != 200:
+                                    error_text = await resp.text()
+                                    print(f"❌ Gemini API error ({model}): {resp.status} - {error_text}")
+                                    continue
+                                
+                                data = await resp.json()
+                                text_response = data['candidates'][0]['content']['parts'][0]['text']
+                                print(f"🔍 Gemini scoreboard response: {text_response}")
+                                
+                                # Parse JSON response
+                                import re
+                                import json
+                                
+                                # Try to find JSON in the response
+                                json_match = re.search(r'\{[^{}]*"winner_score"[^{}]*"loser_score"[^{}]*\}', text_response, re.DOTALL)
+                                if not json_match:
+                                    json_match = re.search(r'\{.*?\}', text_response, re.DOTALL)
+                                
+                                if json_match:
+                                    try:
+                                        result = json.loads(json_match.group())
+                                        winner_score = result.get('winner_score')
+                                        loser_score = result.get('loser_score')
+                                        map_name = result.get('map', 'Unknown')
+                                        
+                                        print(f"📊 Extracted - Winner: {winner_score}, Loser: {loser_score}, Map: {map_name}")
+                                        
+                                        # Validate scores are numeric and reasonable
+                                        if winner_score and loser_score:
+                                            try:
+                                                w_score = int(winner_score)
+                                                l_score = int(loser_score)
+                                                
+                                                # Valorant matches: winner must have 10+ (unrated) or 13+ (competitive)
+                                                # Loser must be less than winner
+                                                if w_score > l_score and w_score >= 10 and l_score >= 0:
+                                                    print(f"✅ Valid scores detected: {w_score}-{l_score}")
+                                                    return {
+                                                        'valid': True,
+                                                        'team_1_score': w_score,
+                                                        'team_2_score': l_score,
+                                                        'map': map_name
+                                                    }
+                                                else:
+                                                    print(f"⚠️ Invalid score range: {w_score}-{l_score}")
+                                                    continue
+                                            except ValueError:
+                                                print(f"⚠️ Scores not numeric: {winner_score}, {loser_score}")
+                                                continue
+                                    except json.JSONDecodeError as e:
+                                        print(f"⚠️ JSON parse error: {e}")
+                                        continue
+                        except Exception as e:
+                            print(f"❌ OCR error with {model}: {e}")
+                            continue
+                    
+                    return {'valid': False, 'error': 'Could not extract valid scores from screenshot'}
+                    
+        except Exception as e:
+            print(f"❌ Screenshot validation error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'valid': False, 'error': str(e)}
     
     async def process_screenshots(self, match_id: int):
         """Process both screenshots after they're received"""
