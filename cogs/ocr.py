@@ -997,6 +997,146 @@ class OCRScanner(commands.Cog):
         except Exception:
             # non-fatal
             pass
+    
+    @app_commands.command(name="scan", description="Scan a match screenshot to extract scores and player stats")
+    @app_commands.describe(screenshot="Upload the end-game scoreboard screenshot")
+    async def scan_match(self, interaction: discord.Interaction, screenshot: discord.Attachment):
+        """Scan match screenshot and extract detailed stats"""
+        await interaction.response.defer()
+        
+        try:
+            # Validate it's an image
+            if not screenshot.content_type or not screenshot.content_type.startswith('image/'):
+                await interaction.followup.send("❌ Please upload a valid image file!")
+                return
+            
+            # Download image
+            image_bytes = await screenshot.read()
+            image = Image.open(io.BytesIO(image_bytes))
+            
+            # Resize if too large
+            max_size = 1600
+            if max(image.size) > max_size:
+                ratio = max_size / max(image.size)
+                new_size = tuple(int(dim * ratio) for dim in image.size)
+                image = image.resize(new_size, Image.LANCZOS)
+            
+            # Convert to PNG bytes for API
+            png_buffer = io.BytesIO()
+            image.save(png_buffer, format='PNG')
+            png_bytes = png_buffer.getvalue()
+            
+            # Use Gemini API for scoreboard extraction
+            await interaction.followup.send("⏳ Analyzing screenshot with AI...")
+            
+            result = await self.extract_match_data_gemini(png_bytes)
+            
+            if not result:
+                await interaction.followup.send("❌ Failed to extract match data. Please ensure the screenshot shows the end-game scoreboard clearly.")
+                return
+            
+            # Parse the results
+            map_name = result.get('map', 'Unknown')
+            scores = result.get('score', {})
+            players = result.get('players', [])
+            
+            if not players or len(players) < 10:
+                await interaction.followup.send("❌ Could not extract all player data. Please ensure the screenshot is clear and shows all 10 players.")
+                return
+            
+            # Determine teams and winner
+            top_score = scores.get('top', 0)
+            bottom_score = scores.get('bottom', 0)
+            
+            # Split players into teams (first 5 = top team, last 5 = bottom team)
+            team_a = players[:5]
+            team_b = players[5:10]
+            
+            # Calculate team totals
+            team_a_kills = sum(p['kills'] for p in team_a)
+            team_a_deaths = sum(p['deaths'] for p in team_a)
+            team_a_assists = sum(p['assists'] for p in team_a)
+            
+            team_b_kills = sum(p['kills'] for p in team_b)
+            team_b_deaths = sum(p['deaths'] for p in team_b)
+            team_b_assists = sum(p['assists'] for p in team_b)
+            
+            # Determine winner
+            winner = "Team A" if top_score > bottom_score else "Team B"
+            winning_team = team_a if top_score > bottom_score else team_b
+            losing_team = team_b if top_score > bottom_score else team_a
+            
+            # Find MVP (highest K/D ratio with minimum 5 kills)
+            mvp = None
+            best_kd = 0
+            for player in players:
+                if player['kills'] >= 5:
+                    kd = player['kills'] / max(player['deaths'], 1)
+                    if kd > best_kd:
+                        best_kd = kd
+                        mvp = player
+            
+            # Create detailed embed
+            embed = discord.Embed(
+                title=f"📊 Match Analysis - {map_name}",
+                description=f"**Final Score: {top_score} - {bottom_score}**\n🏆 Winner: **{winner}**",
+                color=0x00FF00 if winner == "Team A" else 0xFF0000
+            )
+            
+            # Team A stats
+            team_a_text = ""
+            for p in team_a:
+                kd_ratio = p['kills'] / max(p['deaths'], 1)
+                team_a_text += f"**{p['ign']}** ({p['agent']})\n"
+                team_a_text += f"  {p['kills']} / {p['deaths']} / {p['assists']} (K/D: {kd_ratio:.2f})\n"
+            
+            embed.add_field(
+                name=f"🔵 Team A - {top_score} rounds",
+                value=f"{team_a_text}\n**Totals:** {team_a_kills}K / {team_a_deaths}D / {team_a_assists}A",
+                inline=False
+            )
+            
+            # Team B stats
+            team_b_text = ""
+            for p in team_b:
+                kd_ratio = p['kills'] / max(p['deaths'], 1)
+                team_b_text += f"**{p['ign']}** ({p['agent']})\n"
+                team_b_text += f"  {p['kills']} / {p['deaths']} / {p['assists']} (K/D: {kd_ratio:.2f})\n"
+            
+            embed.add_field(
+                name=f"🔴 Team B - {bottom_score} rounds",
+                value=f"{team_b_text}\n**Totals:** {team_b_kills}K / {team_b_deaths}D / {team_b_assists}A",
+                inline=False
+            )
+            
+            # MVP
+            if mvp:
+                mvp_kd = mvp['kills'] / max(mvp['deaths'], 1)
+                embed.add_field(
+                    name="⭐ Match MVP",
+                    value=f"**{mvp['ign']}** ({mvp['agent']})\n{mvp['kills']}/{mvp['deaths']}/{mvp['assists']} (K/D: {mvp_kd:.2f})",
+                    inline=False
+                )
+            
+            embed.set_footer(text="Scanned with Gemini AI • Data extracted from scoreboard")
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            print(f"Error in scan_match: {e}")
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ Error processing screenshot: {str(e)}")
+    
+    async def extract_match_data_gemini(self, png_bytes: bytes) -> Optional[dict]:
+        """Extract match data using Gemini API"""
+        try:
+            # Use the existing Gemini OCR function
+            result = await call_gemini_with_retry(png_bytes, GEMINI_API_KEY, max_attempts=3)
+            return result
+        except Exception as e:
+            print(f"Gemini extraction error: {e}")
+            return None
 
 # ---- setup
 async def setup(bot: commands.Bot):
