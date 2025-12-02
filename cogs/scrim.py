@@ -685,8 +685,80 @@ class CoinTossView(View):
         await self.cog.start_banning_maps(self.match, winner, loser)
 
 
+class MapVetoView(View):
+    """View for map veto (ban or pick)"""
+    def __init__(self, match: dict, acting_captain: discord.User, maps: list, action: str, cog):
+        super().__init__(timeout=300)
+        self.match = match
+        self.acting_captain = acting_captain
+        self.maps = maps
+        self.action = action  # 'ban' or 'pick'
+        self.cog = cog
+        
+        # Add buttons for each map
+        for map_name in maps:
+            if action == 'ban':
+                button = Button(label=f"🚫 Ban {map_name}", style=discord.ButtonStyle.danger)
+            else:  # pick
+                button = Button(label=f"✅ Pick {map_name}", style=discord.ButtonStyle.success)
+            
+            button.callback = self.create_veto_callback(map_name)
+            self.add_item(button)
+    
+    def create_veto_callback(self, map_name: str):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.acting_captain.id:
+                await interaction.response.send_message("This button is not for you!", ephemeral=True)
+                return
+            
+            await interaction.response.defer(ephemeral=True)
+            await self.cog.handle_veto_action(self.match, self.acting_captain, map_name, self.action)
+            
+            # Disable all buttons
+            for item in self.children:
+                item.disabled = True
+            await interaction.edit_original_response(view=self)
+        return callback
+
+
+class SideSelectionView(View):
+    """View for selecting Attack or Defense side"""
+    def __init__(self, match: dict, captain: discord.User, map_name: str, cog, is_decider: bool = False):
+        super().__init__(timeout=300)
+        self.match = match
+        self.captain = captain
+        self.map_name = map_name
+        self.cog = cog
+        self.is_decider = is_decider
+    
+    @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger, emoji="⚔️")
+    async def attack_button(self, interaction: discord.Interaction, button: Button):
+        await self.select_side(interaction, "Attack")
+    
+    @discord.ui.button(label="🛡️ Defense", style=discord.ButtonStyle.primary, emoji="🛡️")
+    async def defense_button(self, interaction: discord.Interaction, button: Button):
+        await self.select_side(interaction, "Defense")
+    
+    async def select_side(self, interaction: discord.Interaction, side: str):
+        if interaction.user.id != self.captain.id:
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        await interaction.edit_original_response(view=self)
+        
+        if self.is_decider:
+            await self.cog.handle_decider_side_selection(self.match, self.captain, self.map_name, side)
+        else:
+            await self.cog.handle_side_selection(self.match, self.captain, self.map_name, side)
+
+
 class MapBanView(View):
-    """View for banning maps"""
+    """LEGACY View for old banning system - kept for compatibility"""
     def __init__(self, match: dict, banner: discord.User, maps: list, ban_count: int, cog):
         super().__init__(timeout=300)
         self.match = match
@@ -2105,40 +2177,310 @@ class Scrim(commands.Cog):
             traceback.print_exc()
     
     async def start_banning_maps(self, match: dict, winner: discord.User, loser: discord.User):
-        """Start the map banning process"""
-        # Store toss winner/loser in a temporary dict (could also store in DB)
+        """Start the VCT-style map veto process"""
+        # Store veto state in match_data
         if not hasattr(self, 'match_data'):
             self.match_data = {}
         
-        self.match_data[match['id']] = {
-            'toss_winner': winner.id,
-            'toss_loser': loser.id,
-            'banned_maps': [],
-            'final_maps': [],
-            'sides': {}
-        }
-        
-        # All Valorant maps
-        all_maps = ["Ascent", "Bind", "Icebox", "Haven", "Split", "Breeze", "Fracture", "Pearl"]
-        
-        # Determine how many maps to ban based on match type
-        # Check if captains agreed on a different format during format selection
+        # Determine format
         match_type = match['match_type']
         if match['id'] in self.match_data and 'agreed_format' in self.match_data[match['id']]:
             match_type = self.match_data[match['id']]['agreed_format']
         
-        if match_type == 'bo1':
-            maps_needed = 1
-            total_bans = 7  # Ban 7, play 1
-        elif match_type == 'bo3':
-            maps_needed = 3
-            total_bans = 5  # Ban 5, play 3
-        else:  # bo5
-            maps_needed = 5
-            total_bans = 3  # Ban 3, play 5
+        self.match_data[match['id']] = {
+            'toss_winner': winner.id,
+            'toss_loser': loser.id,
+            'format': match_type,
+            'banned_maps': [],
+            'picked_maps': [],  # [(map_name, picker_team, side_chosen)]
+            'decider_map': None,
+            'veto_step': 0,
+            'sides': {}
+        }
         
-        # Start with first banner (toss winner)
-        await self.send_ban_ui(match, winner, loser, all_maps, 0, total_bans)
+        # All available maps (7 maps)
+        all_maps = ["Ascent", "Bind", "Breeze", "Fracture", "Haven", "Icebox", "Split"]
+        self.match_data[match['id']]['available_maps'] = all_maps.copy()
+        
+        # Get team names for display
+        team_1 = await db.get_team_by_captain(match['captain_1_discord_id'])
+        team_2 = await db.get_team_by_captain(match['captain_2_discord_id'])
+        team_a_name = f"{team_1['name']}" if team_1 else f"Team {winner.display_name}"
+        team_b_name = f"{team_2['name']}" if team_2 else f"Team {loser.display_name}"
+        
+        self.match_data[match['id']]['team_a_id'] = winner.id
+        self.match_data[match['id']]['team_b_id'] = loser.id
+        self.match_data[match['id']]['team_a_name'] = team_a_name
+        self.match_data[match['id']]['team_b_name'] = team_b_name
+        
+        # Get captains
+        captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+        captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+        
+        # Define veto sequence based on format
+        if match_type == 'bo1':
+            # BO1: A ban, B ban, A ban, B ban, A ban, B ban, remaining = decider, coin toss for side
+            veto_sequence = [
+                ('ban', 'A'), ('ban', 'B'), ('ban', 'A'), ('ban', 'B'),
+                ('ban', 'A'), ('ban', 'B'), ('decider', None)
+            ]
+        elif match_type == 'bo3':
+            # BO3: A ban, B ban, A pick (+ side), B pick (+ side), B ban, A ban, remaining = decider, coin toss
+            veto_sequence = [
+                ('ban', 'A'), ('ban', 'B'),
+                ('pick', 'A'), ('pick', 'B'),
+                ('ban', 'B'), ('ban', 'A'),
+                ('decider', None)
+            ]
+        else:  # bo5
+            # BO5: A ban, B ban, A pick (+ side), B pick (+ side), A pick (+ side), B pick (+ side), remaining = decider, coin toss
+            veto_sequence = [
+                ('ban', 'A'), ('ban', 'B'),
+                ('pick', 'A'), ('pick', 'B'),
+                ('pick', 'A'), ('pick', 'B'),
+                ('decider', None)
+            ]
+        
+        self.match_data[match['id']]['veto_sequence'] = veto_sequence
+        
+        # Start veto process
+        await self.process_next_veto_step(match, captain_1, captain_2)
+    
+    async def process_next_veto_step(self, match: dict, captain_1: discord.User, captain_2: discord.User):
+        """Process the next step in the veto sequence"""
+        match_data = self.match_data[match['id']]
+        veto_sequence = match_data['veto_sequence']
+        step_index = match_data['veto_step']
+        
+        if step_index >= len(veto_sequence):
+            # Veto complete
+            await self.finalize_veto(match, captain_1, captain_2)
+            return
+        
+        action, team = veto_sequence[step_index]
+        
+        if action == 'decider':
+            # Remaining map is the decider
+            remaining = match_data['available_maps'][0]
+            match_data['decider_map'] = remaining
+            match_data['picked_maps'].append((remaining, 'Decider', 'Coin Toss'))
+            match_data['veto_step'] += 1
+            
+            # Do coin toss for decider map
+            await self.do_coin_toss_for_decider(match, captain_1, captain_2, remaining)
+        else:
+            # Determine which captain acts
+            team_a_id = match_data['team_a_id']
+            acting_captain = captain_1 if (team == 'A' and captain_1.id == team_a_id) or (team == 'B' and captain_1.id != team_a_id) else captain_2
+            other_captain = captain_2 if acting_captain == captain_1 else captain_1
+            
+            if action == 'ban':
+                await self.send_veto_ui(match, acting_captain, other_captain, action, team)
+            elif action == 'pick':
+                await self.send_veto_ui(match, acting_captain, other_captain, action, team)
+    
+    async def send_veto_ui(self, match: dict, acting_captain: discord.User, other_captain: discord.User, action: str, team: str):
+        """Send veto UI (ban or pick)"""
+        match_data = self.match_data[match['id']]
+        available_maps = match_data['available_maps']
+        step_index = match_data['veto_step']
+        
+        team_name = match_data['team_a_name'] if team == 'A' else match_data['team_b_name']
+        
+        if action == 'ban':
+            view = MapVetoView(match, acting_captain, available_maps, action, self)
+            await acting_captain.send(
+                f"🚫 **MAP BAN** - Step {step_index + 1}\n\n"
+                f"**Your Team ({team_name})** must ban a map.\n"
+                f"Available maps: {', '.join(available_maps)}\n\n"
+                f"Select a map to ban:",
+                view=view
+            )
+            await other_captain.send(
+                f"⏳ **{team_name}** ({acting_captain.display_name}) is banning a map..."
+            )
+        else:  # pick
+            view = MapVetoView(match, acting_captain, available_maps, action, self)
+            await acting_captain.send(
+                f"✅ **MAP PICK** - Step {step_index + 1}\n\n"
+                f"**Your Team ({team_name})** must pick a map.\n"
+                f"Available maps: {', '.join(available_maps)}\n\n"
+                f"Select a map to pick:",
+                view=view
+            )
+            await other_captain.send(
+                f"⏳ **{team_name}** ({acting_captain.display_name}) is picking a map..."
+            )
+    
+    async def handle_veto_action(self, match: dict, captain: discord.User, map_name: str, action: str):
+        """Handle a ban or pick action"""
+        match_data = self.match_data[match['id']]
+        available_maps = match_data['available_maps']
+        
+        # Remove map from available
+        available_maps.remove(map_name)
+        
+        # Get captains
+        captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+        captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+        
+        if action == 'ban':
+            match_data['banned_maps'].append(map_name)
+            
+            # Notify both
+            await captain_1.send(f"🚫 **{captain.display_name}** banned **{map_name}**")
+            await captain_2.send(f"🚫 **{captain.display_name}** banned **{map_name}**")
+            
+            # Move to next step
+            match_data['veto_step'] += 1
+            await self.process_next_veto_step(match, captain_1, captain_2)
+        
+        elif action == 'pick':
+            # Need side selection for picked maps
+            team_name = match_data['team_a_name'] if captain.id == match_data['team_a_id'] else match_data['team_b_name']
+            
+            # Send side selection UI
+            view = SideSelectionView(match, captain, map_name, self)
+            await captain.send(
+                f"✅ You picked **{map_name}**!\n\n"
+                f"🛡️⚔️ **Choose your starting side:**",
+                view=view
+            )
+            
+            other = captain_2 if captain == captain_1 else captain_1
+            await other.send(f"✅ **{captain.display_name}** picked **{map_name}** (choosing side...)")
+    
+    async def handle_side_selection(self, match: dict, captain: discord.User, map_name: str, side: str):
+        """Handle side selection for a picked map"""
+        match_data = self.match_data[match['id']]
+        team_name = match_data['team_a_name'] if captain.id == match_data['team_a_id'] else match_data['team_b_name']
+        
+        # Store pick with side
+        match_data['picked_maps'].append((map_name, team_name, side))
+        match_data['sides'][map_name] = {'picker': captain.id, 'side': side}
+        
+        # Get captains
+        captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+        captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+        
+        # Notify both
+        await captain_1.send(f"✅ **{map_name}**: {team_name} starts on **{side}**")
+        await captain_2.send(f"✅ **{map_name}**: {team_name} starts on **{side}**")
+        
+        # Move to next step
+        match_data['veto_step'] += 1
+        await self.process_next_veto_step(match, captain_1, captain_2)
+    
+    async def do_coin_toss_for_decider(self, match: dict, captain_1: discord.User, captain_2: discord.User, map_name: str):
+        """Perform coin toss for decider map side selection"""
+        import random
+        
+        match_data = self.match_data[match['id']]
+        
+        # Random coin toss
+        toss_winner = random.choice([captain_1, captain_2])
+        toss_loser = captain_2 if toss_winner == captain_1 else captain_1
+        
+        # Send side selection to toss winner
+        view = SideSelectionView(match, toss_winner, map_name, self, is_decider=True)
+        await toss_winner.send(
+            f"🪙 **COIN TOSS for {map_name}** 🪙\n\n"
+            f"✅ You **WON** the toss!\n\n"
+            f"🛡️⚔️ **Choose your starting side:**",
+            view=view
+        )
+        await toss_loser.send(
+            f"🪙 **COIN TOSS for {map_name}** 🪙\n\n"
+            f"❌ You **LOST** the toss.\n\n"
+            f"⏳ **{toss_winner.display_name}** is choosing the starting side..."
+        )
+    
+    async def handle_decider_side_selection(self, match: dict, captain: discord.User, map_name: str, side: str):
+        """Handle side selection for decider map after coin toss"""
+        match_data = self.match_data[match['id']]
+        team_name = match_data['team_a_name'] if captain.id == match_data['team_a_id'] else match_data['team_b_name']
+        
+        # Update decider map side
+        for i, (m, t, s) in enumerate(match_data['picked_maps']):
+            if m == map_name and t == 'Decider':
+                match_data['picked_maps'][i] = (m, team_name, side)
+                break
+        
+        match_data['sides'][map_name] = {'picker': captain.id, 'side': side}
+        
+        # Get captains
+        captain_1 = await self.bot.fetch_user(match['captain_1_discord_id'])
+        captain_2 = await self.bot.fetch_user(match['captain_2_discord_id'])
+        
+        # Notify both
+        await captain_1.send(f"✅ **{map_name}** (Decider): {team_name} starts on **{side}**")
+        await captain_2.send(f"✅ **{map_name}** (Decider): {team_name} starts on **{side}**")
+        
+        # Veto complete
+        await self.finalize_veto(match, captain_1, captain_2)
+    
+    async def finalize_veto(self, match: dict, captain_1: discord.User, captain_2: discord.User):
+        """Show final veto summary"""
+        match_data = self.match_data[match['id']]
+        
+        # Create beautiful summary embed
+        embed = discord.Embed(
+            title="🎮 MAP VETO COMPLETE",
+            description=f"**{match_data['format'].upper()}** • **{match['region'].upper()}**",
+            color=0x00FF00
+        )
+        
+        # Teams
+        embed.add_field(
+            name="👥 Teams",
+            value=f"**Team A:** {match_data['team_a_name']}\n**Team B:** {match_data['team_b_name']}",
+            inline=False
+        )
+        
+        # Banned Maps
+        if match_data['banned_maps']:
+            embed.add_field(
+                name="🚫 Banned Maps",
+                value=", ".join(match_data['banned_maps']),
+                inline=False
+            )
+        
+        # Map Pool with Sides
+        maps_text = ""
+        for i, (map_name, team, side) in enumerate(match_data['picked_maps'], 1):
+            other_side = 'Defense' if side == 'Attack' else 'Attack'
+            other_team = match_data['team_b_name'] if team == match_data['team_a_name'] else match_data['team_a_name']
+            
+            if team == 'Decider':
+                maps_text += f"**Map {i}: {map_name}** (Decider - Coin Toss)\n"
+                maps_text += f"  🛡️ {side}\n\n"
+            else:
+                maps_text += f"**Map {i}: {map_name}** (Picked by {team})\n"
+                maps_text += f"  • {team}: {side}\n"
+                maps_text += f"  • {other_team}: {other_side}\n\n"
+        
+        embed.add_field(
+            name="🗺️ Map Pool",
+            value=maps_text,
+            inline=False
+        )
+        
+        embed.set_footer(text=f"Match ID: {match['id']} • Good luck!")
+        
+        # Send to both captains
+        await captain_1.send(embed=embed)
+        await captain_2.send(embed=embed)
+        
+        # Also send to LFS channel
+        lfs_channel_id = os.getenv('LFS_CHANNEL_ID')
+        if lfs_channel_id:
+            lfs_channel = self.bot.get_channel(int(lfs_channel_id))
+            if lfs_channel:
+                await lfs_channel.send(
+                    f"🎮 **Scrim Match Ready!**\n"
+                    f"**{match_data['team_a_name']}** vs **{match_data['team_b_name']}**",
+                    embed=embed
+                )
     
     async def send_ban_ui(self, match: dict, current_banner: discord.User, other_captain: discord.User, available_maps: list, ban_count: int, total_bans: int):
         """Send map ban UI to current banner"""
