@@ -57,7 +57,7 @@ class RegistrationView(discord.ui.View):
             # Create private thread
             thread = await interaction.channel.create_thread(
                 name=f"Registration-{interaction.user.name}",
-                type=discord.ChannelType.private_thread
+                auto_archive_duration=1440
             )
             print(f"✓ Thread created: {thread.name} (ID: {thread.id})")
             
@@ -472,7 +472,7 @@ class RegistrationView(discord.ui.View):
             # Create private thread
             thread = await interaction.channel.create_thread(
                 name=f"Registration-{interaction.user.name}",
-                type=discord.ChannelType.private_thread
+                auto_archive_duration=1440
             )
             print(f"✓ Thread created: {thread.name} (ID: {thread.id})")
             
@@ -1166,3 +1166,5 @@ class Registration(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Registration(bot))
+
+

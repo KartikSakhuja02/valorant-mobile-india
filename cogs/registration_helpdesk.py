@@ -58,12 +58,17 @@ class HelpdeskView(discord.ui.View):
         
         print(f"✓ User is not registered, creating thread...")
         
-        # Create private thread
+        # Create public thread so users can send messages
         try:
             thread = await interaction.channel.create_thread(
                 name=f"Help-{interaction.user.name}",
-                type=discord.ChannelType.private_thread
+                auto_archive_duration=1440,
+                type=discord.ChannelType.public_thread,
+                invitable=True
             )
+            # Unarchive and unlock the thread
+            if thread.archived:
+                await thread.edit(archived=False, locked=False)
             print(f"✓ Thread created: {thread.name} (ID: {thread.id})")
         except Exception as e:
             print(f"❌ Error creating thread: {e}")
