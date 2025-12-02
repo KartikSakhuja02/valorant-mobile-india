@@ -1043,6 +1043,14 @@ class OCRScanner(commands.Cog):
                 await interaction.followup.send("❌ Failed to extract match data. Please ensure the screenshot shows the end-game scoreboard clearly.")
                 return
             
+            # Get registered players from database
+            try:
+                all_players = await db.get_all_players()
+                registered_igns = {p['ign'].strip().lower() for p in all_players if p.get('ign')}
+            except Exception as e:
+                print(f"Error loading registered players: {e}")
+                registered_igns = set()
+            
             # Parse the results
             map_name = result.get('map', 'Unknown')
             scores = result.get('score', {})
@@ -1088,26 +1096,33 @@ class OCRScanner(commands.Cog):
                     max_kills = kills
                     mvp = player
             
+            # Count registered players
+            total_players = len(team_a) + len(team_b)
+            registered_count = sum(1 for p in team_a + team_b if p.get('ign', p.get('name', '')).strip().lower() in registered_igns)
+            
             # Create embed
             embed = discord.Embed(
-                title="📊 Match Analysis",
-                description=f"**Map:** {map_name}\n**Score:** {team_a_score} - {team_b_score}\n**Winner:** {winner}",
-                color=discord.Color.green()
+                title="📊 MATCH RESULTS",
+                description=f"**Map:** {map_name} 🗺️\n**Score:** {team_a_score} — {team_b_score}\n**Status:** {winner}\n**Players:** {registered_count} registered • {total_players - registered_count} unregistered",
+                color=discord.Color.green() if 'Team A' in winner else discord.Color.red()
             )
             
             # Team A (Green)
             team_a_text = ""
             for player in team_a:
                 name = player.get('ign', player.get('name', 'Unknown'))
-                agent = player.get('agent', 'Unknown')
                 kills = player.get('kills', 0)
                 deaths = player.get('deaths', 0)
                 assists = player.get('assists', 0)
                 acs = player.get('acs', 0)
                 
+                # Check registration status
+                is_registered = name.strip().lower() in registered_igns
+                status_icon = "✅" if is_registered else "❌"
+                
                 # Add star for MVP
                 star = " ⭐" if mvp and player.get('ign', player.get('name')) == mvp.get('ign', mvp.get('name')) else ""
-                team_a_text += f"**{name}** ({agent}){star}\n`{kills}K/{deaths}D/{assists}A | ACS: {acs}`\n"
+                team_a_text += f"{status_icon} **{name}**{star} • `{kills}/{deaths}/{assists}`\n"
             
             embed.add_field(
                 name=f"🟢 Team A (Green) - {team_a_score}",
@@ -1119,12 +1134,16 @@ class OCRScanner(commands.Cog):
             team_b_text = ""
             for player in team_b:
                 name = player.get('ign', player.get('name', 'Unknown'))
-                agent = player.get('agent', 'Unknown')
                 kills = player.get('kills', 0)
                 deaths = player.get('deaths', 0)
                 assists = player.get('assists', 0)
                 acs = player.get('acs', 0)
-                team_b_text += f"**{name}** ({agent})\n`{kills}K/{deaths}D/{assists}A | ACS: {acs}`\n"
+                
+                # Check registration status
+                is_registered = name.strip().lower() in registered_igns
+                status_icon = "✅" if is_registered else "❌"
+                
+                team_b_text += f"{status_icon} **{name}** • `{kills}/{deaths}/{assists}`\n"
             
             embed.add_field(
                 name=f"🔴 Team B (Red) - {team_b_score}",
@@ -1132,13 +1151,7 @@ class OCRScanner(commands.Cog):
                 inline=False
             )
             
-            # MVP
-            if mvp:
-                embed.add_field(
-                    name="⭐ Match MVP",
-                    value=f"**{mvp.get('ign', mvp.get('name', 'Unknown'))}** ({mvp.get('agent', 'Unknown')})\n`{mvp.get('kills', 0)}K/{mvp.get('deaths', 0)}D/{mvp.get('assists', 0)}A | ACS: {mvp.get('acs', 0)}`",
-                    inline=False
-                )
+            # MVP - already marked with ⭐ in team display, no need for separate field
             
             embed.set_footer(text="Scanned with Gemini AI • Data extracted from scoreboard")
             
