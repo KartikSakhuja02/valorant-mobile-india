@@ -561,12 +561,14 @@ Return RAW JSON ONLY (no markdown), exactly like:
 
 SCORE EXTRACTION RULES:
 - Look at the score display at the TOP CENTER of the screen
-- Format: "LEFT_NUMBER [Chinese text] RIGHT_NUMBER" (e.g., "7 败北 9")
-- LEFT number = team_a score (cyan/teal team)
-- RIGHT number = team_b score (red/pink team)
+- Format examples: "7 败北 9", "7 — 9", "10 获胜 8"
+- The FIRST/LEFT number (before the Chinese text) = team_a score (cyan/teal team)
+- The SECOND/RIGHT number (after the Chinese text) = team_b score (red/pink team)
+- Example: "7 败北 9" means team_a: 7, team_b: 9 (NOT team_a: 9, team_b: 7)
+- Example: "10 — 8" means team_a: 10, team_b: 8
+- ALWAYS put the LEFT/FIRST number in team_a, RIGHT/SECOND number in team_b
 - The LEFT score belongs to the cyan/teal background players (Team A)
 - The RIGHT score belongs to the red/pink background players (Team B)
-- Extract both numbers exactly as shown
 
 AVAILABLE VALORANT AGENTS (use exact spelling):
 DUELISTS: Jett, Phoenix, Reyna, Raze, Yoru, Neon, Iso
@@ -641,10 +643,12 @@ CRITICAL RULES:
 13. If agent is really unclear after careful examination, use "Unknown" but TRY YOUR BEST FIRST
 
 SCORE FORMAT - CRITICAL:
-- Score display format: "LEFT_NUMBER [text] RIGHT_NUMBER" (e.g., "7 败北 9" or "7 — 9")
-- LEFT number = team_a score (cyan/teal background players)
-- RIGHT number = team_b score (red/pink background players)
-- DO NOT assign scores based on who won - extract the POSITION (left vs right)
+- Score display format: "FIRST_NUMBER [text] SECOND_NUMBER" (e.g., "7 败北 9" or "7 — 9")
+- FIRST/LEFT number (the number that appears FIRST when reading left-to-right) = team_a score (cyan/teal background players)
+- SECOND/RIGHT number (the number that appears AFTER the Chinese text) = team_b score (red/pink background players)
+- Example: If you see "7 败北 9", then team_a: 7 and team_b: 9
+- Example: If you see "10 — 8", then team_a: 10 and team_b: 8
+- DO NOT swap the scores - always put FIRST number in team_a, SECOND number in team_b
 
 DO NOT include:
 - Match date/time (e.g., "2025/07/20 17:48")
