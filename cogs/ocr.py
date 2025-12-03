@@ -1424,8 +1424,16 @@ class OCRScanner(commands.Cog):
             
             print(f"📊 Validation: {len(validation_results)} players | {len(mismatches)} mismatches | {len(high_confidence_mismatches)} high-confidence mismatches")
             
+            # Check if Gemini already gave us valid 5v5 teams
+            gemini_has_valid_teams = len(team_a) == 5 and len(team_b) == 5
+            
             # If we have significant mismatches and correction is enabled
-            if enable_correction and len(high_confidence_mismatches) >= 2:
+            # BUT: Don't correct if Gemini already gave us perfect 5v5 teams and correction would break that
+            should_correct = (enable_correction and 
+                            len(high_confidence_mismatches) >= 2 and
+                            not gemini_has_valid_teams)
+            
+            if should_correct:
                 print(f"⚠️ Detected {len(high_confidence_mismatches)} high-confidence team assignment errors - attempting correction...")
                 
                 # Rebuild teams based on color detection
@@ -1439,16 +1447,27 @@ class OCRScanner(commands.Cog):
                     else:
                         corrected_team_b.append(player)
                 
-                # Only apply correction if we still have valid team sizes
-                if 3 <= len(corrected_team_a) <= 7 and 3 <= len(corrected_team_b) <= 7:
+                # Only apply correction if we still have valid team sizes (prefer 5v5)
+                corrected_valid = len(corrected_team_a) == 5 and len(corrected_team_b) == 5
+                corrected_acceptable = 3 <= len(corrected_team_a) <= 7 and 3 <= len(corrected_team_b) <= 7
+                
+                if corrected_valid:
                     print(f"✅ Applied color-based correction: Team A={len(corrected_team_a)}, Team B={len(corrected_team_b)}")
                     parsed_data['team_a'] = corrected_team_a
                     parsed_data['team_b'] = corrected_team_b
                     parsed_data['_corrected'] = True
                     parsed_data['_validation_results'] = validation_results
+                elif corrected_acceptable:
+                    print(f"⚠️ Correction produces non-ideal teams (A={len(corrected_team_a)}, B={len(corrected_team_b)}) but acceptable")
+                    parsed_data['team_a'] = corrected_team_a
+                    parsed_data['team_b'] = corrected_team_b
+                    parsed_data['_corrected'] = True
+                    parsed_data['_validation_results'] = validation_results
                 else:
-                    print(f"⚠️ Correction would produce invalid team sizes (A={len(corrected_team_a)}, B={len(corrected_team_b)}) - keeping original")
+                    print(f"⚠️ Correction would produce invalid team sizes (A={len(corrected_team_a)}, B={len(corrected_team_b)}) - keeping Gemini's teams")
             
+            elif gemini_has_valid_teams and len(high_confidence_mismatches) > 0:
+                print(f"ℹ️ Found {len(high_confidence_mismatches)} color mismatches but Gemini provided perfect 5v5 teams - trusting Gemini")
             elif len(mismatches) > 0:
                 print(f"⚠️ Found {len(mismatches)} mismatches but confidence too low or count too small for auto-correction")
             else:
