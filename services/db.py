@@ -604,145 +604,7 @@ async def update_team_logo(team_id: int, logo_url: str) -> None:
             WHERE id = $2
         """, logo_url, team_id)
 
-async def transfer_team_captain(team_id: int, new_captain_id: int) -> None:
-    """Transfer team captainship to another team member."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            # Verify new captain is a team member
-            is_member = await conn.fetchval("""
-                SELECT EXISTS(
-                    SELECT 1 FROM team_members
-                    WHERE team_id = $1 AND player_id = $2
-                )
-            """, team_id, new_captain_id)
-            
-            if not is_member:
-                raise ValueError("New captain must be a team member")
-            
-            # Update team captain
-            await conn.execute("""
-                UPDATE teams
-                SET captain_id = $1
-                WHERE id = $2
-            """, new_captain_id, team_id)
 
-async def add_team_manager(team_id: int, manager_id: int, slot: int = 1) -> bool:
-    """Add a manager to the team (slot 1 or 2). Returns True if successful, False if slot is taken."""
-    if slot not in [1, 2]:
-        raise ValueError("Manager slot must be 1 or 2")
-    
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        # Check if slot is already taken
-        if slot == 1:
-            current = await conn.fetchval("""
-                SELECT manager_1_id FROM teams WHERE id = $1
-            """, team_id)
-        else:
-            current = await conn.fetchval("""
-                SELECT manager_2_id FROM teams WHERE id = $1
-            """, team_id)
-        
-        if current is not None:
-            return False  # Slot already taken
-        
-        # Add manager to slot
-        if slot == 1:
-            await conn.execute("""
-                UPDATE teams
-                SET manager_1_id = $1
-                WHERE id = $2
-            """, manager_id, team_id)
-        else:
-            await conn.execute("""
-                UPDATE teams
-                SET manager_2_id = $1
-                WHERE id = $2
-            """, manager_id, team_id)
-        return True
-
-async def remove_team_manager(team_id: int, slot: int = None, manager_id: int = None) -> None:
-    """Remove a manager from the team. Can specify by slot (1 or 2) or by manager_id."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        if slot:
-            if slot not in [1, 2]:
-                raise ValueError("Manager slot must be 1 or 2")
-            if slot == 1:
-                await conn.execute("""
-                    UPDATE teams
-                    SET manager_1_id = NULL
-                    WHERE id = $1
-                """, team_id)
-            else:
-                await conn.execute("""
-                    UPDATE teams
-                    SET manager_2_id = NULL
-                    WHERE id = $1
-                """, team_id)
-        elif manager_id:
-            # Remove from whichever slot they're in
-            await conn.execute("""
-                UPDATE teams
-                SET manager_1_id = CASE WHEN manager_1_id = $1 THEN NULL ELSE manager_1_id END,
-                    manager_2_id = CASE WHEN manager_2_id = $1 THEN NULL ELSE manager_2_id END
-                WHERE id = $2
-            """, manager_id, team_id)
-
-async def add_team_coach(team_id: int, coach_id: int) -> bool:
-    """Add a coach to the team. Returns True if successful, False if slot is taken."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        # Check if coach slot is already taken
-        current = await conn.fetchval("""
-            SELECT coach_id FROM teams WHERE id = $1
-        """, team_id)
-        
-        if current is not None:
-            return False  # Coach slot already taken
-        
-        # Add coach
-        await conn.execute("""
-            UPDATE teams
-            SET coach_id = $1
-            WHERE id = $2
-        """, coach_id, team_id)
-        return True
-
-async def remove_team_coach(team_id: int) -> None:
-    """Remove the coach from the team."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE teams
-            SET coach_id = NULL
-            WHERE id = $1
-        """, team_id)
-
-async def get_team_staff(team_id: int) -> Dict[str, Any]:
-    """Get all staff members for a team (managers and coach)."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        staff = await conn.fetchrow("""
-            SELECT 
-                t.manager_1_id,
-                t.manager_2_id,
-                t.coach_id,
-                m1.ign as manager_1_ign,
-                m2.ign as manager_2_ign,
-                c.ign as coach_ign
-            FROM teams t
-            LEFT JOIN players m1 ON t.manager_1_id = m1.discord_id
-            LEFT JOIN players m2 ON t.manager_2_id = m2.discord_id
-            LEFT JOIN players c ON t.coach_id = c.discord_id
-            WHERE t.id = $1
-        """, team_id)
-        
-        if not staff:
-            return {}
-        
-        return dict(staff)
 
 async def delete_team(team_id: int) -> None:
     """Delete a team (cascade deletes members)."""
@@ -1620,3 +1482,29 @@ async def remove_team_manager(team_id: int, slot: int):
                 SET manager_2_id = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE team_id = $1
             """, team_id)
+
+
+async def get_team_staff(team_id: int) -> Dict[str, Any]:
+    """Get all staff members for a team (managers and coach) from team_staff table."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        staff = await conn.fetchrow("""
+            SELECT 
+                ts.coach_id,
+                ts.manager_1_id,
+                ts.manager_2_id,
+                c.ign as coach_ign,
+                m1.ign as manager_1_ign,
+                m2.ign as manager_2_ign
+            FROM team_staff ts
+            LEFT JOIN players c ON ts.coach_id = c.discord_id
+            LEFT JOIN players m1 ON ts.manager_1_id = m1.discord_id
+            LEFT JOIN players m2 ON ts.manager_2_id = m2.discord_id
+            WHERE ts.team_id = $1
+        """, team_id)
+        
+        if not staff:
+            return {}
+        
+        return dict(staff)
+

@@ -41,6 +41,7 @@ def cfg(key, default=None):
 import discord
 from discord.ext import commands
 from discord import app_commands
+from discord.ui import View, Button
 import aiohttp
 from PIL import Image, ImageOps
 import numpy as np
@@ -323,6 +324,137 @@ GEMINI_API_KEY = cfg('GEMINI_API_KEY')
 
 GUILD = discord.Object(id=GUILD_ID) if GUILD_ID else None
 
+
+class SaveMatchView(View):
+    """View with Save Match button"""
+    def __init__(self, match_data: dict, registered_igns: set, requester_id: int):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.match_data = match_data
+        self.registered_igns = registered_igns
+        self.requester_id = requester_id
+        self.saved = False
+    
+    @discord.ui.button(label="💾 Save Match to Database", style=discord.ButtonStyle.green)
+    async def save_match(self, interaction: discord.Interaction, button: Button):
+        """Save match results to database"""
+        # Only allow the person who ran /scan to save
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message("❌ Only the person who scanned can save this match!", ephemeral=True)
+            return
+        
+        if self.saved:
+            await interaction.response.send_message("✅ This match has already been saved!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        try:
+            # Prepare match data for database
+            team_a = self.match_data.get('team_a', [])
+            team_b = self.match_data.get('team_b', [])
+            scores = self.match_data.get('score', {})
+            team_a_score = scores.get('team_a', 0)
+            team_b_score = scores.get('team_b', 0)
+            map_name = self.match_data.get('map', 'Unknown')
+            
+            # Determine winner
+            team_a_won = team_a_score > team_b_score
+            
+            # Find MVP (highest kills in winning team)
+            winning_team = team_a if team_a_won else team_b
+            mvp_player = max(winning_team, key=lambda p: p.get('kills', 0))
+            mvp_ign = mvp_player.get('ign', mvp_player.get('name', '')).strip().lower()
+            
+            # Build player list with stats
+            players_data = []
+            
+            for player in team_a:
+                ign = player.get('ign', player.get('name', '')).strip()
+                ign_lower = ign.lower()
+                
+                # Only save registered players
+                if ign_lower in self.registered_igns:
+                    # Get discord_id from database
+                    player_db = await db.get_player_by_ign(ign)
+                    if player_db:
+                        players_data.append({
+                            'discord_id': player_db['discord_id'],
+                            'agent': player.get('agent', 'Unknown'),
+                            'kills': player.get('kills', 0),
+                            'deaths': player.get('deaths', 0),
+                            'assists': player.get('assists', 0),
+                            'score': player.get('acs', 0),
+                            'mvp': (ign_lower == mvp_ign),
+                            'team': 'team_a',
+                            'won': team_a_won
+                        })
+            
+            for player in team_b:
+                ign = player.get('ign', player.get('name', '')).strip()
+                ign_lower = ign.lower()
+                
+                # Only save registered players
+                if ign_lower in self.registered_igns:
+                    # Get discord_id from database
+                    player_db = await db.get_player_by_ign(ign)
+                    if player_db:
+                        players_data.append({
+                            'discord_id': player_db['discord_id'],
+                            'agent': player.get('agent', 'Unknown'),
+                            'kills': player.get('kills', 0),
+                            'deaths': player.get('deaths', 0),
+                            'assists': player.get('assists', 0),
+                            'score': player.get('acs', 0),
+                            'mvp': (ign_lower == mvp_ign),
+                            'team': 'team_b',
+                            'won': not team_a_won
+                        })
+            
+            if not players_data:
+                await interaction.followup.send("❌ No registered players found in this match! Only registered players can have their stats saved.", ephemeral=True)
+                return
+            
+            # Save to database
+            match_save_data = {
+                'team1_score': team_a_score,
+                'team2_score': team_b_score,
+                'map': map_name,
+                'players': players_data
+            }
+            
+            result = await db.save_match_results(match_save_data)
+            
+            # Update leaderboards for all registered players
+            for player in players_data:
+                player_info = await db.get_player(player['discord_id'])
+                if player_info:
+                    await db.update_player_leaderboard(
+                        player['discord_id'],
+                        player_info['ign'],
+                        player_info.get('region', 'india')
+                    )
+            
+            self.saved = True
+            button.disabled = True
+            button.label = "✅ Match Saved"
+            button.style = discord.ButtonStyle.gray
+            
+            await interaction.message.edit(view=self)
+            await interaction.followup.send(
+                f"✅ **Match saved successfully!**\n"
+                f"📊 Match ID: `{result['match_id']}`\n"
+                f"👥 Saved stats for {len(players_data)} registered player(s)\n"
+                f"🔄 Player profiles and leaderboards updated!",
+                ephemeral=True
+            )
+            
+        except Exception as e:
+            print(f"Error saving match: {e}")
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ Error saving match: {str(e)}", ephemeral=True)
+
+
 # --------------------------- Gemini OCR setup -------------------------------
 # We'll allow multiple model candidates and endpoints; config may override model
 GEMINI_MODEL = cfg('GEMINI_MODEL')
@@ -514,13 +646,21 @@ You are reading a VALORANT Mobile END-GAME scoreboard screenshot.
 
 CRITICAL TEAM IDENTIFICATION:
 - Players are divided into TWO TEAMS by background color
-- GREEN/TEAL background = Team A (winning team, top of scoreboard)
-- RED/PINK background = Team B (losing team, bottom of scoreboard)
+- GREEN/CYAN background = Team A (LEFT side, appears at top of scoreboard)
+- RED/PINK background = Team B (RIGHT side, appears at bottom of scoreboard)
 - Each team has exactly 5 players
-- You MUST identify which players have green backgrounds and which have red backgrounds
+- You MUST identify which players have green/cyan backgrounds and which have red/pink backgrounds
+
+CRITICAL SCORE MAPPING:
+- The scoreboard shows TWO NUMBERS at the top (e.g., "10 - 8" or "10  8")
+- LEFT score = Team A score (cyan/green players)
+- RIGHT score = Team B score (red players)
+- Format: {{"team_a": LEFT_SCORE, "team_b": RIGHT_SCORE}}
+- Example: If scoreboard shows "10 - 8", then team_a: 10, team_b: 8
+- DO NOT assume the higher score is team_a - always map LEFT score to team_a
 
 For EACH of the 10 players, extract:
-1. Team color (green or red background)
+1. Team color (green/cyan or red background)
 2. Agent (look at the circular portrait icon on the LEFT)
 3. IGN (in-game name)
 4. K/D/A stats (kills / deaths / assists)
@@ -1335,7 +1475,10 @@ class OCRScanner(commands.Cog):
             
             embed.set_footer(text=" • ".join(footer_parts))
             
-            await interaction.followup.send(embed=embed)
+            # Create Save Match button
+            view = SaveMatchView(result, registered_igns, interaction.user.id)
+            
+            await interaction.followup.send(embed=embed, view=view)
             
         except Exception as e:
             print(f"Error in scan_match: {e}")

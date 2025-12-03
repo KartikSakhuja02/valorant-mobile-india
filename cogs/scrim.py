@@ -1100,8 +1100,13 @@ class Scrim(commands.Cog):
             
             # Message Format
             embed.add_field(
-                name="📝 Message Format",
-                value="```\nLFS [BO1/BO3/BO5]\n[TIME], [REGION]\n```",
+                name="📝 Message Format (Choose One)",
+                value=(
+                    "**Format 1 (2 lines):**\n"
+                    "```\nLFS [BO1/BO3/BO5]\n[TIME], [REGION]\n```\n"
+                    "**Format 2 (1 line):**\n"
+                    "```LFS [FORMAT] [TIME] [REGION]```"
+                ),
                 inline=False
             )
             
@@ -1109,8 +1114,11 @@ class Scrim(commands.Cog):
             embed.add_field(
                 name="💡 Examples",
                 value=(
+                    "**2-line format:**\n"
                     "```\nLFS BO3\n7PM IST, APAC\n```\n"
-                    "```\nLFS BO5\n9PM CET, EMEA\n```"
+                    "**1-line format:**\n"
+                    "```LFS BO3 7PM IST APAC```\n"
+                    "```LFS BO5 9PM CET EMEA```"
                 ),
                 inline=False
             )
@@ -1188,54 +1196,86 @@ class Scrim(commands.Cog):
             return
         
         # Parse the message format
-        # Expected format:
-        # LFS BO1/BO3/BO5
-        # TIME, REGION (e.g., 7PM IST, APAC)
+        # Supported formats:
+        # Format 1 (2-line):
+        #   LFS BO1/BO3/BO5
+        #   TIME, REGION (e.g., 7PM IST, APAC)
+        # Format 2 (1-line):
+        #   LFS FORMAT TIME REGION (e.g., LFS BO3 7PM IST APAC)
         
         content = message.content.strip()
         lines = content.split('\n')
         
-        if len(lines) < 2:
-            # Send error message
+        # Try to parse single-line format first: LFS FORMAT TIME REGION
+        if len(lines) == 1:
+            first_line = lines[0].strip().upper()
+            # Match pattern: LFS BO1/BO3/BO5 TIME REGION
+            single_line_match = re.search(r'LFS\s+(BO[135])\s+(.+?)\s+(APAC|EMEA|AMERICAS|INDIA)$', first_line)
+            
+            if single_line_match:
+                match_type = single_line_match.group(1).lower()
+                time_part = single_line_match.group(2).strip()
+                region_input = single_line_match.group(3).strip().upper()
+            else:
+                # Invalid single-line format
+                error_msg = await message.channel.send(
+                    f"❌ {message.author.mention} Invalid format! Please use either:\n"
+                    "**Format 1 (2 lines):**\n"
+                    "```\nLFS BO1/BO3/BO5\n"
+                    "TIME, REGION\n```"
+                    "**Format 2 (1 line):**\n"
+                    "```LFS FORMAT TIME REGION```\n"
+                    "Examples: `LFS BO3 7PM IST APAC` or `LFS BO5 9PM CET EMEA`"
+                )
+                await message.delete()
+                await error_msg.delete(delay=15)
+                return
+        
+        # Try to parse 2-line format
+        elif len(lines) >= 2:
+            # Parse first line: LFS BO1/BO3/BO5
+            first_line = lines[0].strip().upper()
+            match_type_match = re.search(r'LFS\s+(BO[135])', first_line)
+            
+            if not match_type_match:
+                error_msg = await message.channel.send(
+                    f"❌ {message.author.mention} Invalid format! First line should be: `LFS BO1`, `LFS BO3`, or `LFS BO5`"
+                )
+                await message.delete()
+                await error_msg.delete(delay=10)
+                return
+            
+            match_type = match_type_match.group(1).lower()
+            
+            # Parse second line: TIME, REGION
+            second_line = lines[1].strip()
+            parts = [p.strip() for p in second_line.split(',')]
+            
+            if len(parts) < 2:
+                error_msg = await message.channel.send(
+                    f"❌ {message.author.mention} Invalid format! Second line should be: `TIME, REGION`\n"
+                    "Example: `7PM IST, APAC`"
+                )
+                await message.delete()
+                await error_msg.delete(delay=10)
+                return
+            
+            time_part = parts[0].strip()
+            region_input = parts[1].strip().upper()
+        
+        else:
+            # No lines or invalid
             error_msg = await message.channel.send(
-                f"❌ {message.author.mention} Invalid format! Please use:\n"
+                f"❌ {message.author.mention} Invalid format! Please use either:\n"
+                "**Format 1 (2 lines):**\n"
                 "```\nLFS BO1/BO3/BO5\n"
-                "TIME, REGION (e.g., 7PM IST, APAC)\n```"
-            )
-            # Delete both messages after 10 seconds
-            await message.delete()
-            await error_msg.delete(delay=10)
-            return
-        
-        # Parse first line: LFS BO1/BO3/BO5
-        first_line = lines[0].strip().upper()
-        match_type_match = re.search(r'LFS\s+(BO[135])', first_line)
-        
-        if not match_type_match:
-            error_msg = await message.channel.send(
-                f"❌ {message.author.mention} Invalid format! First line should be: `LFS BO1`, `LFS BO3`, or `LFS BO5`"
+                "TIME, REGION\n```"
+                "**Format 2 (1 line):**\n"
+                "```LFS FORMAT TIME REGION```"
             )
             await message.delete()
             await error_msg.delete(delay=10)
             return
-        
-        match_type = match_type_match.group(1).lower()
-        
-        # Parse second line: TIME, REGION
-        second_line = lines[1].strip()
-        parts = [p.strip() for p in second_line.split(',')]
-        
-        if len(parts) < 2:
-            error_msg = await message.channel.send(
-                f"❌ {message.author.mention} Invalid format! Second line should be: `TIME, REGION`\n"
-                "Example: `7PM IST, APAC`"
-            )
-            await message.delete()
-            await error_msg.delete(delay=10)
-            return
-        
-        time_part = parts[0].strip()
-        region_input = parts[1].strip().upper()
         
         # Validate region
         valid_regions = ['APAC', 'EMEA', 'AMERICAS', 'INDIA']
@@ -1343,9 +1383,12 @@ class Scrim(commands.Cog):
                 f"**Match Type:** {match_type.upper()}\n"
                 f"**Region:** {region.upper()}\n"
                 f"**Time:** {time_display}\n\n"
-                f"Check your DMs to see all available scrim requests! 🔍"
+                f"Check your DMs to see all available scrim requests! 🔍\n\n"
+                f"💡 **Tip:** You can use either format:\n"
+                f"• 2-line: `LFS BO3` then `7PM IST, APAC`\n"
+                f"• 1-line: `LFS BO3 7PM IST APAC`"
             )
-            await confirm_msg.delete(delay=15)
+            await confirm_msg.delete(delay=20)
             
             # Send all pending requests to this captain
             await self.send_all_scrim_requests(request, message.author)
@@ -1382,7 +1425,10 @@ class Scrim(commands.Cog):
             try:
                 await captain.send(
                     f"📋 **Available Scrim Requests:**\n"
-                    f"Found {len(pending_requests)} team(s) looking for scrims!\n"
+                    f"Found {len(pending_requests)} team(s) looking for scrims!\n\n"
+                    f"💡 **Format Reminder:** Post LFS using either:\n"
+                    f"• 2-line: `LFS BO3` then `7PM IST, APAC`\n"
+                    f"• 1-line: `LFS BO3 7PM IST APAC`\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 )
             except:
