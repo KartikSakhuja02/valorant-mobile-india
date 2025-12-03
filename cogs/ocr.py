@@ -542,22 +542,31 @@ AGENT IDENTIFICATION - LOOK AT THE CIRCULAR PORTRAIT ICON:
 Return RAW JSON ONLY (no markdown), exactly like:
 {{
   "map": "Haven",
-  "score": {{"team_a": 10, "team_b": 3}},
+  "score": {{"team_a": 7, "team_b": 9}},
   "team_a": [
-    {{"ign":"LeanON","agent":"Jett","kills":20,"deaths":6,"assists":4}},
-    {{"ign":"Kami.1","agent":"Sage","kills":16,"deaths":9,"assists":3}},
-    {{"ign":"Kevin09","agent":"Omen","kills":10,"deaths":5,"assists":3}},
-    {{"ign":"Scrat","agent":"Killjoy","kills":8,"deaths":8,"assists":3}},
-    {{"ign":"Katana国王","agent":"Cypher","kills":5,"deaths":7,"assists":5}}
+    {{"ign":"Remzz","agent":"Jett","kills":24,"deaths":14,"assists":3}},
+    {{"ign":"DarkWiz.Zr","agent":"Sage","kills":15,"deaths":10,"assists":8}},
+    {{"ign":"Chikuu","agent":"Phoenix","kills":7,"deaths":12,"assists":5}},
+    {{"ign":"Fateh.Zr","agent":"Breach","kills":7,"deaths":10,"assists":8}},
+    {{"ign":"Dark.Zr","agent":"Cypher","kills":4,"deaths":9,"assists":3}}
   ],
   "team_b": [
-    {{"ign":"ShankSs","agent":"Fade","kills":14,"deaths":12,"assists":0}},
-    {{"ign":"InfinityOp","agent":"Reyna","kills":6,"deaths":12,"assists":3}},
-    {{"ign":"大陆","agent":"Raze","kills":7,"deaths":13,"assists":2}},
-    {{"ign":"BELIEVEog","agent":"Breach","kills":7,"deaths":11,"assists":2}},
-    {{"ign":"BStarAJ","agent":"Phoenix","kills":1,"deaths":11,"assists":1}}
+    {{"ign":"Axryan","agent":"Reyna","kills":12,"deaths":11,"assists":5}},
+    {{"ign":"Hxpe.nxbi","agent":"Raze","kills":12,"deaths":10,"assists":8}},
+    {{"ign":"INDAX.kirmada","agent":"Omen","kills":13,"deaths":11,"assists":4}},
+    {{"ign":"Hxpe.ViRTUAL","agent":"Sova","kills":12,"deaths":12,"assists":3}},
+    {{"ign":"Hxpe.BelieveOG","agent":"Killjoy","kills":6,"deaths":13,"assists":3}}
   ]
 }}
+
+SCORE EXTRACTION RULES:
+- Look at the score display at the TOP CENTER of the screen
+- Format: "LEFT_NUMBER [Chinese text] RIGHT_NUMBER" (e.g., "7 败北 9")
+- LEFT number = team_a score (cyan/teal team)
+- RIGHT number = team_b score (red/pink team)
+- The LEFT score belongs to the cyan/teal background players (Team A)
+- The RIGHT score belongs to the red/pink background players (Team B)
+- Extract both numbers exactly as shown
 
 AVAILABLE VALORANT AGENTS (use exact spelling):
 DUELISTS: Jett, Phoenix, Reyna, Raze, Yoru, Neon, Iso
@@ -626,15 +635,16 @@ CRITICAL RULES:
 7. K/D/A format is "number / number / number" (e.g., "16 / 10 / 7")
 8. SKIP any rows that don't have a portrait icon (those are headers/time/etc)
 9. Return exactly 10 players based on their row background color
-10. Get the match score from the top - WINNING score comes FIRST (format like "9 败北 7" means 9 won, 7 lost)
+10. Get the match score from the top - LEFT score = team_a (cyan), RIGHT score = team_b (red)
 11. If IGN is unreadable, use "PLAYER_X" where X is the row number
 12. If K/D/A numbers are unreadable, set to null
 13. If agent is really unclear after careful examination, use "Unknown" but TRY YOUR BEST FIRST
 
-SCORE FORMAT EXAMPLES:
-- "9 败北 7" or "9 — 7" means Team with 9 rounds WON (higher score wins)
-- "13 获胜 11" means 13 rounds won vs 11 rounds lost
-- The HIGHER number is the WINNING team's score
+SCORE FORMAT - CRITICAL:
+- Score display format: "LEFT_NUMBER [text] RIGHT_NUMBER" (e.g., "7 败北 9" or "7 — 9")
+- LEFT number = team_a score (cyan/teal background players)
+- RIGHT number = team_b score (red/pink background players)
+- DO NOT assign scores based on who won - extract the POSITION (left vs right)
 
 DO NOT include:
 - Match date/time (e.g., "2025/07/20 17:48")
@@ -645,7 +655,7 @@ DO NOT include:
 FOCUS: 
 1. Check EACH row's background color (cyan/teal = Team A, red/pink = Team B)
 2. Examine the agent portrait icons carefully for agent identification
-3. Winning team (higher score) should have cyan/teal backgrounds
+3. Extract LEFT score for team_a, RIGHT score for team_b (regardless of which is higher)
 """
 
 AGENT_GUIDE = ""  # Agent detection disabled
