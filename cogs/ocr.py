@@ -512,20 +512,15 @@ def _build_agent_guide() -> str:
 PROMPT_TEMPLATE = """
 You are reading a VALORANT Mobile END-GAME scoreboard screenshot.
 
-CRITICAL TEAM IDENTIFICATION - READ CAREFULLY:
-- Players are divided into TWO TEAMS by ROW BACKGROUND COLOR
-- CYAN/TEAL/GREEN background row = Team A (winning team)
-- RED/PINK/DARK RED background row = Team B (losing team)
+CRITICAL TEAM IDENTIFICATION:
+- Players are divided into TWO TEAMS by background color
+- GREEN/TEAL background = Team A (winning team, top of scoreboard)
+- RED/PINK background = Team B (losing team, bottom of scoreboard)
 - Each team has exactly 5 players
-- Players are SORTED BY SCORE, NOT by team, so teams are MIXED/INTERLEAVED in the list
-- You MUST look at EACH row's background color to determine which team that player belongs to
-- DO NOT assume first 5 players are one team - CHECK THE BACKGROUND COLOR OF EACH ROW!
-
-IMPORTANT: The scoreboard shows players sorted by performance, NOT grouped by team.
-So you'll see: cyan player, cyan player, RED player, RED player, cyan player, RED player, etc.
+- You MUST identify which players have green backgrounds and which have red backgrounds
 
 For EACH of the 10 players, extract:
-1. Row background color (cyan/teal/green = Team A, red/pink = Team B)
+1. Team color (green or red background)
 2. Agent (look at the circular portrait icon on the LEFT)
 3. IGN (in-game name)
 4. K/D/A stats (kills / deaths / assists)
@@ -542,33 +537,22 @@ AGENT IDENTIFICATION - LOOK AT THE CIRCULAR PORTRAIT ICON:
 Return RAW JSON ONLY (no markdown), exactly like:
 {{
   "map": "Haven",
-  "score": {{"team_a": 7, "team_b": 9}},
+  "score": {{"team_a": 10, "team_b": 3}},
   "team_a": [
-    {{"ign":"Remzz","agent":"Jett","kills":24,"deaths":14,"assists":3}},
-    {{"ign":"DarkWiz.Zr","agent":"Sage","kills":15,"deaths":10,"assists":8}},
-    {{"ign":"Chikuu","agent":"Phoenix","kills":7,"deaths":12,"assists":5}},
-    {{"ign":"Fateh.Zr","agent":"Breach","kills":7,"deaths":10,"assists":8}},
-    {{"ign":"Dark.Zr","agent":"Cypher","kills":4,"deaths":9,"assists":3}}
+    {{"ign":"LeanON","agent":"Jett","kills":20,"deaths":6,"assists":4}},
+    {{"ign":"Kami.1","agent":"Sage","kills":16,"deaths":9,"assists":3}},
+    {{"ign":"Kevin09","agent":"Omen","kills":10,"deaths":5,"assists":3}},
+    {{"ign":"Scrat","agent":"Killjoy","kills":8,"deaths":8,"assists":3}},
+    {{"ign":"Katana国王","agent":"Cypher","kills":5,"deaths":7,"assists":5}}
   ],
   "team_b": [
-    {{"ign":"Axryan","agent":"Reyna","kills":12,"deaths":11,"assists":5}},
-    {{"ign":"Hxpe.nxbi","agent":"Raze","kills":12,"deaths":10,"assists":8}},
-    {{"ign":"INDAX.kirmada","agent":"Omen","kills":13,"deaths":11,"assists":4}},
-    {{"ign":"Hxpe.ViRTUAL","agent":"Sova","kills":12,"deaths":12,"assists":3}},
-    {{"ign":"Hxpe.BelieveOG","agent":"Killjoy","kills":6,"deaths":13,"assists":3}}
+    {{"ign":"ShankSs","agent":"Fade","kills":14,"deaths":12,"assists":0}},
+    {{"ign":"InfinityOp","agent":"Reyna","kills":6,"deaths":12,"assists":3}},
+    {{"ign":"大陆","agent":"Raze","kills":7,"deaths":13,"assists":2}},
+    {{"ign":"BELIEVEog","agent":"Breach","kills":7,"deaths":11,"assists":2}},
+    {{"ign":"BStarAJ","agent":"Phoenix","kills":1,"deaths":11,"assists":1}}
   ]
 }}
-
-SCORE EXTRACTION RULES:
-- Look at the score display at the TOP CENTER of the screen
-- Format examples: "7 败北 9", "7 — 9", "10 获胜 8"
-- The FIRST/LEFT number (before the Chinese text) = team_a score (cyan/teal team)
-- The SECOND/RIGHT number (after the Chinese text) = team_b score (red/pink team)
-- Example: "7 败北 9" means team_a: 7, team_b: 9 (NOT team_a: 9, team_b: 7)
-- Example: "10 — 8" means team_a: 10, team_b: 8
-- ALWAYS put the LEFT/FIRST number in team_a, RIGHT/SECOND number in team_b
-- The LEFT score belongs to the cyan/teal background players (Team A)
-- The RIGHT score belongs to the red/pink background players (Team B)
 
 AVAILABLE VALORANT AGENTS (use exact spelling):
 DUELISTS: Jett, Phoenix, Reyna, Raze, Yoru, Neon, Iso
@@ -628,27 +612,17 @@ KEY AGENT VISUAL IDENTIFIERS:
 - Vyse: Blue/silver metallic
 
 CRITICAL RULES:
-1. CAREFULLY EXAMINE each row's BACKGROUND COLOR behind the player name
-2. Cyan/teal/green rows go to team_a, red/pink rows go to team_b
-3. Players are MIXED - don't assume first 5 are team A!
-4. Match the icon's colors and design to the agent descriptions above
-5. Each row has: [Agent Portrait Icon] [Player Name] [Score] [K/D/A] [Other Stats]
-6. Player names can contain: letters, numbers, dots, underscores, Chinese characters, spaces
-7. K/D/A format is "number / number / number" (e.g., "16 / 10 / 7")
-8. SKIP any rows that don't have a portrait icon (those are headers/time/etc)
-9. Return exactly 10 players based on their row background color
-10. Get the match score from the top - LEFT score = team_a (cyan), RIGHT score = team_b (red)
-11. If IGN is unreadable, use "PLAYER_X" where X is the row number
-12. If K/D/A numbers are unreadable, set to null
-13. If agent is really unclear after careful examination, use "Unknown" but TRY YOUR BEST FIRST
-
-SCORE FORMAT - CRITICAL:
-- Score display format: "FIRST_NUMBER [text] SECOND_NUMBER" (e.g., "7 败北 9" or "7 — 9")
-- FIRST/LEFT number (the number that appears FIRST when reading left-to-right) = team_a score (cyan/teal background players)
-- SECOND/RIGHT number (the number that appears AFTER the Chinese text) = team_b score (red/pink background players)
-- Example: If you see "7 败北 9", then team_a: 7 and team_b: 9
-- Example: If you see "10 — 8", then team_a: 10 and team_b: 8
-- DO NOT swap the scores - always put FIRST number in team_a, SECOND number in team_b
+1. CAREFULLY EXAMINE each circular portrait icon on the left of player names
+2. Match the icon's colors and design to the agent descriptions above
+3. Each row has: [Agent Portrait Icon] [Player Name] [Score] [K/D/A] [Other Stats]
+4. Player names can contain: letters, numbers, dots, underscores, Chinese characters, spaces
+5. K/D/A format is "number / number / number" (e.g., "16 / 10 / 7")
+6. SKIP any rows that don't have a portrait icon (those are headers/time/etc)
+7. Return exactly 10 players in order from top to bottom
+8. Get the match score from the top (format like "10 获胜 4" or "13 — 9")
+9. If IGN is unreadable, use "PLAYER_X" where X is the row number
+10. If K/D/A numbers are unreadable, set to null
+11. If agent is really unclear after careful examination, use "Unknown" but TRY YOUR BEST FIRST
 
 DO NOT include:
 - Match date/time (e.g., "2025/07/20 17:48")
@@ -656,10 +630,7 @@ DO NOT include:
 - Buttons or UI elements
 - Anything without a circular portrait icon
 
-FOCUS: 
-1. Check EACH row's background color (cyan/teal = Team A, red/pink = Team B)
-2. Examine the agent portrait icons carefully for agent identification
-3. Extract LEFT score for team_a, RIGHT score for team_b (regardless of which is higher)
+FOCUS: Examine the agent portrait icons carefully - they are your PRIMARY source for agent identification!
 """
 
 AGENT_GUIDE = ""  # Agent detection disabled
@@ -1263,27 +1234,29 @@ class OCRScanner(commands.Cog):
                 await interaction.followup.send(error_message)
                 return
             
-            # Determine winner based on score (higher score = winner)
-            # In VALORANT Mobile: score format "9 败北 7" means 9 rounds won (winning team)
-            # Team A (cyan) should have the higher score if they won
-            # Team B (red) should have the lower score if they lost
+            # Determine winner based on color detection logic
+            # Cyan/Green background = winning team (Team A)
+            # Red/Pink background = losing team (Team B)
+            # So if Team A has cyan players, Team A won
+            # The higher score belongs to the winning team
             
-            if team_a_score > team_b_score:
-                winner = "Team A (Cyan)"
-                winning_team = team_a
-                losing_team = team_b
-                print(f"✅ Team A (cyan) won with score {team_a_score} vs {team_b_score}")
-            elif team_b_score > team_a_score:
+            # In VALORANT Mobile scoreboards:
+            # - Winning team (cyan/green background) is always shown first = Team A
+            # - Losing team (red/pink background) is shown second = Team B
+            # - So Team A score should be >= Team B score (winners on top)
+            
+            # Determine winner based on team colors (cyan wins, red loses)
+            winner = "Team A (Cyan)" 
+            winning_team = team_a  # Cyan players are winners
+            losing_team = team_b   # Red players are losers
+            
+            # Verify scores match this logic (winning team should have higher score)
+            if team_b_score > team_a_score:
+                print(f"⚠️ Score mismatch detected: Team A (cyan/winning) has {team_a_score} but Team B (red/losing) has {team_b_score}")
+                print(f"   This suggests teams may be reversed - swapping interpretation")
                 winner = "Team B (Red)"
                 winning_team = team_b
                 losing_team = team_a
-                print(f"✅ Team B (red) won with score {team_b_score} vs {team_a_score}")
-            else:
-                # Tie - shouldn't happen in VALORANT
-                winner = "Tie"
-                winning_team = team_a
-                losing_team = team_b
-                print(f"⚠️ Tie game: {team_a_score} - {team_b_score}")
             
             # Find MVP (player with most kills in winning team)
             mvp = None
@@ -1323,7 +1296,7 @@ class OCRScanner(commands.Cog):
                 team_a_text += f"{status_icon} **{name}**{star} • `{kills}/{deaths}/{assists}`\n"
             
             embed.add_field(
-                name=f"🟢 Team A (Cyan) - {team_a_score}",
+                name=f"🟢 Team A (Cyan/Winners) - {team_a_score}",
                 value=team_a_text or "No data",
                 inline=False
             )
@@ -1344,7 +1317,7 @@ class OCRScanner(commands.Cog):
                 team_b_text += f"{status_icon} **{name}** • `{kills}/{deaths}/{assists}`\n"
             
             embed.add_field(
-                name=f"🔴 Team B (Red) - {team_b_score}",
+                name=f"🔴 Team B (Red/Losers) - {team_b_score}",
                 value=team_b_text or "No data",
                 inline=False
             )
