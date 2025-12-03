@@ -1234,29 +1234,22 @@ class OCRScanner(commands.Cog):
                 await interaction.followup.send(error_message)
                 return
             
-            # Determine winner based on color detection logic
-            # Cyan/Green background = winning team (Team A)
-            # Red/Pink background = losing team (Team B)
-            # So if Team A has cyan players, Team A won
-            # The higher score belongs to the winning team
-            
-            # In VALORANT Mobile scoreboards:
-            # - Winning team (cyan/green background) is always shown first = Team A
-            # - Losing team (red/pink background) is shown second = Team B
-            # - So Team A score should be >= Team B score (winners on top)
-            
-            # Determine winner based on team colors (cyan wins, red loses)
-            winner = "Team A (Cyan)" 
-            winning_team = team_a  # Cyan players are winners
-            losing_team = team_b   # Red players are losers
-            
-            # Verify scores match this logic (winning team should have higher score)
-            if team_b_score > team_a_score:
-                print(f"⚠️ Score mismatch detected: Team A (cyan/winning) has {team_a_score} but Team B (red/losing) has {team_b_score}")
-                print(f"   This suggests teams may be reversed - swapping interpretation")
+            # Determine winner based on SCORE (higher score wins)
+            # Team colors (cyan/red) just indicate which side they're on, not who won
+            # The score tells us who actually won the match
+            if team_a_score > team_b_score:
+                winner = "Team A (Cyan)"
+                winning_team = team_a
+                losing_team = team_b
+            elif team_b_score > team_a_score:
                 winner = "Team B (Red)"
                 winning_team = team_b
                 losing_team = team_a
+            else:
+                # Tie game (shouldn't happen in VALORANT but just in case)
+                winner = "Draw"
+                winning_team = team_a  # Arbitrary choice for MVP
+                losing_team = team_b
             
             # Find MVP (player with most kills in winning team)
             mvp = None
@@ -1296,7 +1289,7 @@ class OCRScanner(commands.Cog):
                 team_a_text += f"{status_icon} **{name}**{star} • `{kills}/{deaths}/{assists}`\n"
             
             embed.add_field(
-                name=f"🟢 Team A (Cyan/Winners) - {team_a_score}",
+                name=f"🟢 Team A (Cyan) - {team_a_score}",
                 value=team_a_text or "No data",
                 inline=False
             )
@@ -1317,7 +1310,7 @@ class OCRScanner(commands.Cog):
                 team_b_text += f"{status_icon} **{name}** • `{kills}/{deaths}/{assists}`\n"
             
             embed.add_field(
-                name=f"🔴 Team B (Red/Losers) - {team_b_score}",
+                name=f"🔴 Team B (Red) - {team_b_score}",
                 value=team_b_text or "No data",
                 inline=False
             )
