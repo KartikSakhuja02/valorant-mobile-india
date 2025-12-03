@@ -30,6 +30,65 @@ def cfg(key, default=None):
         return val
     return _load_config_json().get(key, default)
 
+async def wait_for_message_with_timeout(bot, check, thread, user, timeout_duration=300):
+    """
+    Wait for a message with inactivity timeout system.
+    - After 5 minutes of inactivity, ping the user
+    - After another 5 minutes, delete thread and DM user
+    Returns: (message, timed_out)
+    """
+    try:
+        # First wait - 5 minutes
+        message = await bot.wait_for('message', timeout=timeout_duration, check=check)
+        return message, False
+    except asyncio.TimeoutError:
+        # First timeout - ping user
+        try:
+            await thread.send(
+                f"⏰ {user.mention} **Inactivity Warning**\n\n"
+                "You haven't responded for 5 minutes. Please send your message to continue.\n"
+                "⚠️ **If you don't respond in the next 5 minutes, this registration will be cancelled.**"
+            )
+        except:
+            pass
+        
+        try:
+            # Second wait - another 5 minutes
+            message = await bot.wait_for('message', timeout=timeout_duration, check=check)
+            return message, False
+        except asyncio.TimeoutError:
+            # Second timeout - cancel registration
+            try:
+                await thread.send(
+                    f"❌ {user.mention} **Registration Cancelled**\n\n"
+                    "You didn't respond for 10 minutes total.\n"
+                    "This thread will be deleted in 10 seconds."
+                )
+            except:
+                pass
+            
+            # Send DM
+            try:
+                await user.send(
+                    "❌ **Registration Cancelled Due to Inactivity**\n\n"
+                    "Your registration thread was deleted because you didn't respond for 10 minutes.\n\n"
+                    "**To register again:**\n"
+                    "• Use the `/register` command\n"
+                    "• Make sure to respond promptly when asked for information\n\n"
+                    "If you need help, please contact a staff member."
+                )
+            except:
+                pass
+            
+            # Delete thread after delay
+            await asyncio.sleep(10)
+            try:
+                await thread.delete()
+            except:
+                pass
+            
+            return None, True
+
 class RegistrationView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)  # Persistent view, no timeout
@@ -130,8 +189,13 @@ class RegistrationView(discord.ui.View):
                    message.attachments
 
         try:
-            # Wait for screenshot
-            message = await interaction.client.wait_for('message', timeout=3600, check=check)
+            # Wait for screenshot with inactivity timeout
+            message, timed_out = await wait_for_message_with_timeout(
+                interaction.client, check, thread, interaction.user
+            )
+            
+            if timed_out or not message:
+                return
             
             # Process OCR
             from services.ocr_service import ocr_service

@@ -29,6 +29,65 @@ def cfg(key, default=None):
         return val
     return _load_config_json().get(key, default)
 
+async def wait_for_message_with_timeout(bot, check, thread, user, timeout_duration=300):
+    """
+    Wait for a message with inactivity timeout system for team registration.
+    - After 5 minutes of inactivity, ping the user
+    - After another 5 minutes, delete thread and DM user
+    Returns: (message, timed_out)
+    """
+    try:
+        # First wait - 5 minutes
+        message = await bot.wait_for('message', timeout=timeout_duration, check=check)
+        return message, False
+    except asyncio.TimeoutError:
+        # First timeout - ping user
+        try:
+            await thread.send(
+                f"⏰ {user.mention} **Inactivity Warning**\n\n"
+                "You haven't responded for 5 minutes. Please send your message to continue.\n"
+                "⚠️ **If you don't respond in the next 5 minutes, this team registration will be cancelled.**"
+            )
+        except:
+            pass
+        
+        try:
+            # Second wait - another 5 minutes
+            message = await bot.wait_for('message', timeout=timeout_duration, check=check)
+            return message, False
+        except asyncio.TimeoutError:
+            # Second timeout - cancel registration
+            try:
+                await thread.send(
+                    f"❌ {user.mention} **Team Registration Cancelled**\n\n"
+                    "You didn't respond for 10 minutes total.\n"
+                    "This thread will be deleted in 10 seconds."
+                )
+            except:
+                pass
+            
+            # Send DM
+            try:
+                await user.send(
+                    "❌ **Team Registration Cancelled Due to Inactivity**\n\n"
+                    "Your team registration thread was deleted because you didn't respond for 10 minutes.\n\n"
+                    "**To register your team again:**\n"
+                    "• Use the team registration button\n"
+                    "• Make sure to respond promptly when asked for information\n\n"
+                    "If you need help, please contact a staff member."
+                )
+            except:
+                pass
+            
+            # Delete thread after delay
+            await asyncio.sleep(10)
+            try:
+                await thread.delete()
+            except:
+                pass
+            
+            return None, True
+
 class TeamRegistrationView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)  # Persistent view, no timeout
@@ -131,21 +190,27 @@ class TeamRegistrationView(discord.ui.View):
             
             # Get Team Name
             await thread.send("**What is your Team Name?**")
-            msg = await interaction.client.wait_for(
-                'message',
-                timeout=300,
-                check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+            msg, timed_out = await wait_for_message_with_timeout(
+                interaction.client,
+                lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id,
+                thread,
+                interaction.user
             )
+            if timed_out or not msg:
+                return None
             team_data['name'] = msg.content.strip()
             
             # Get Team Tag
             await thread.send("**What is your Team Tag? (2-4 characters)**")
             while True:
-                msg = await interaction.client.wait_for(
-                    'message',
-                    timeout=300,
-                    check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+                msg, timed_out = await wait_for_message_with_timeout(
+                    interaction.client,
+                    lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id,
+                    thread,
+                    interaction.user
                 )
+                if timed_out or not msg:
+                    return None
                 tag = msg.content.strip()
                 if 2 <= len(tag) <= 4:
                     team_data['tag'] = tag
@@ -160,11 +225,14 @@ class TeamRegistrationView(discord.ui.View):
             )
             
             while True:
-                msg = await interaction.client.wait_for(
-                    'message',
-                    timeout=300,
-                    check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+                msg, timed_out = await wait_for_message_with_timeout(
+                    interaction.client,
+                    lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id,
+                    thread,
+                    interaction.user
                 )
+                if timed_out or not msg:
+                    return None
                 region = msg.content.lower()
                 if region in valid_regions:
                     team_data['region'] = region
@@ -180,11 +248,14 @@ class TeamRegistrationView(discord.ui.View):
             
             logo_url = None
             while True:
-                msg = await interaction.client.wait_for(
-                    'message',
-                    timeout=300,
-                    check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+                msg, timed_out = await wait_for_message_with_timeout(
+                    interaction.client,
+                    lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id,
+                    thread,
+                    interaction.user
                 )
+                if timed_out or not msg:
+                    return None
                 
                 # Check if user wants to skip
                 if msg.content.lower() == 'skip':
