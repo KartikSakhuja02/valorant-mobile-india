@@ -590,13 +590,408 @@ class Profiles(commands.Cog):
             else:
                 embed.set_footer(text=f"Team ID: {target_team['id']}")
 
-            await interaction.followup.send(embed=embed)
+            # Check if user is captain or manager to show management buttons
+            user_id = interaction.user.id
+            is_captain = user_id == target_team['captain_id']
+            is_manager = user_id in [staff.get('manager_1_id'), staff.get('manager_2_id')]
+            
+            if is_captain or is_manager:
+                # Add management buttons
+                view = TeamManagementView(target_team, staff, is_captain, is_manager)
+                await interaction.followup.send(embed=embed, view=view)
+            else:
+                await interaction.followup.send(embed=embed)
 
         except Exception as e:
             await interaction.followup.send(f"❌ Error building team profile: {e}", ephemeral=True)
             print(f"Team profile error: {e}")
             import traceback
             traceback.print_exc()
+
+class TeamManagementView(discord.ui.View):
+    """Interactive team management view with all controls."""
+    
+    def __init__(self, team_data: dict, staff_data: dict, is_captain: bool, is_manager: bool):
+        super().__init__(timeout=300)
+        self.team_data = team_data
+        self.staff_data = staff_data
+        self.is_captain = is_captain
+        self.is_manager = is_manager
+        
+        # Disable captain-only buttons for managers
+        if not is_captain:
+            for item in self.children:
+                if hasattr(item, 'custom_id') and item.custom_id in ['transfer_captain', 'add_coach', 'remove_coach', 'add_manager', 'remove_manager']:
+                    item.disabled = True
+    
+    @discord.ui.button(label="➕ Add Player", style=discord.ButtonStyle.success, custom_id="add_player", row=0)
+    async def add_player_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Add a player to the team."""
+        await interaction.response.send_message(
+            "➕ **Add Player to Team**\n\n"
+            "Please mention the user you want to add to the team.\n"
+            "They must be registered in the tournament.\n\n"
+            "*Waiting for mention... (30 seconds)*",
+            ephemeral=True
+        )
+        
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+        
+        try:
+            msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
+            
+            if not msg.mentions:
+                await interaction.followup.send("❌ Please mention a user to add.", ephemeral=True)
+                return
+            
+            target_user = msg.mentions[0]
+            
+            # Check if player is registered
+            player = await db.get_player(target_user.id)
+            if not player:
+                await interaction.followup.send(f"❌ {target_user.mention} is not registered in the tournament.", ephemeral=True)
+                return
+            
+            # Check if player is already on a team
+            if player.get('team_id'):
+                await interaction.followup.send(f"❌ {target_user.mention} is already on a team.", ephemeral=True)
+                return
+            
+            # Check roster limit (5 players)
+            members_data = self.team_data.get('members', [])
+            if isinstance(members_data, str):
+                members_data = json.loads(members_data)
+            
+            if len(members_data) >= 5:
+                await interaction.followup.send("❌ Team roster is full (maximum 5 players).", ephemeral=True)
+                return
+            
+            # Add player to team
+            await db.add_player_to_team(self.team_data['id'], target_user.id, player['ign'])
+            
+            await interaction.followup.send(f"✅ Successfully added {target_user.mention} ({player['ign']}) to the team!", ephemeral=True)
+            
+            # Delete user's message
+            try:
+                await msg.delete()
+            except:
+                pass
+                
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
+    
+    @discord.ui.button(label="➖ Remove Player", style=discord.ButtonStyle.danger, custom_id="remove_player", row=0)
+    async def remove_player_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Remove a player from the team."""
+        # Get current members
+        members_data = self.team_data.get('members', [])
+        if isinstance(members_data, str):
+            members_data = json.loads(members_data)
+        
+        if not members_data:
+            await interaction.response.send_message("❌ No players in the team to remove.", ephemeral=True)
+            return
+        
+        # Create member list
+        member_list = ""
+        for member in members_data:
+            if isinstance(member, dict):
+                member_list += f"• <@{member.get('discord_id')}> ({member.get('ign', 'Unknown')})\n"
+        
+        await interaction.response.send_message(
+            "➖ **Remove Player from Team**\n\n"
+            f"Current Members:\n{member_list}\n"
+            "Please mention the user you want to remove from the team.\n\n"
+            "*Waiting for mention... (30 seconds)*",
+            ephemeral=True
+        )
+        
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+        
+        try:
+            msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
+            
+            if not msg.mentions:
+                await interaction.followup.send("❌ Please mention a user to remove.", ephemeral=True)
+                return
+            
+            target_user = msg.mentions[0]
+            
+            # Check if user is on the team
+            is_member = any(m.get('discord_id') == target_user.id for m in members_data if isinstance(m, dict))
+            
+            if not is_member:
+                await interaction.followup.send(f"❌ {target_user.mention} is not on this team.", ephemeral=True)
+                return
+            
+            # Can't remove captain
+            if target_user.id == self.team_data['captain_id']:
+                await interaction.followup.send("❌ Cannot remove the team captain. Transfer captainship first.", ephemeral=True)
+                return
+            
+            # Remove player from team
+            await db.remove_player_from_team(self.team_data['id'], target_user.id)
+            
+            await interaction.followup.send(f"✅ Successfully removed {target_user.mention} from the team!", ephemeral=True)
+            
+            # Delete user's message
+            try:
+                await msg.delete()
+            except:
+                pass
+                
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
+    
+    @discord.ui.button(label="👑 Transfer Captain", style=discord.ButtonStyle.primary, custom_id="transfer_captain", row=0)
+    async def transfer_captain_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Transfer captainship to another team member."""
+        # Get current members (excluding captain)
+        members_data = self.team_data.get('members', [])
+        if isinstance(members_data, str):
+            members_data = json.loads(members_data)
+        
+        eligible_members = [m for m in members_data if isinstance(m, dict) and m.get('discord_id') != self.team_data['captain_id']]
+        
+        if not eligible_members:
+            await interaction.response.send_message(
+                "❌ No eligible team members to transfer captainship to.\n"
+                "You need at least one other player on the team.",
+                ephemeral=True
+            )
+            return
+        
+        # Show list of eligible members
+        member_list = ""
+        for member in eligible_members:
+            member_list += f"• <@{member.get('discord_id')}> ({member.get('ign', 'Unknown')})\n"
+        
+        await interaction.response.send_message(
+            "👑 **Transfer Captainship**\n\n"
+            "⚠️ **WARNING:** This action will make you a regular team member!\n\n"
+            f"Eligible Members:\n{member_list}\n"
+            "Please mention the user you want to make the new captain.\n\n"
+            "*Waiting for mention... (30 seconds)*",
+            ephemeral=True
+        )
+        
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+        
+        try:
+            msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
+            
+            if not msg.mentions:
+                await interaction.followup.send("❌ Please mention a user.", ephemeral=True)
+                return
+            
+            new_captain = msg.mentions[0]
+            
+            # Check if new captain is on the team
+            is_member = any(m.get('discord_id') == new_captain.id for m in members_data if isinstance(m, dict))
+            
+            if not is_member:
+                await interaction.followup.send(f"❌ {new_captain.mention} is not on this team.", ephemeral=True)
+                return
+            
+            # Transfer captainship
+            await db.transfer_team_captainship(self.team_data['id'], new_captain.id)
+            
+            await interaction.followup.send(f"✅ Successfully transferred captainship to {new_captain.mention}!", ephemeral=True)
+            
+            # Delete user's message
+            try:
+                await msg.delete()
+            except:
+                pass
+                
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
+    
+    @discord.ui.button(label="🎓 Add Coach", style=discord.ButtonStyle.success, custom_id="add_coach", row=1)
+    async def add_coach_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Add a coach to the team."""
+        # Check if coach slot is taken
+        if self.staff_data.get('coach_id'):
+            await interaction.response.send_message("❌ Team already has a coach. Remove the current coach first.", ephemeral=True)
+            return
+        
+        await interaction.response.send_message(
+            "🎓 **Add Coach**\n\n"
+            "Please mention the user you want to add as coach.\n\n"
+            "*Waiting for mention... (30 seconds)*",
+            ephemeral=True
+        )
+        
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+        
+        try:
+            msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
+            
+            if not msg.mentions:
+                await interaction.followup.send("❌ Please mention a user to add as coach.", ephemeral=True)
+                return
+            
+            coach_user = msg.mentions[0]
+            
+            # Add coach
+            await db.add_team_coach(self.team_data['id'], coach_user.id)
+            
+            await interaction.followup.send(f"✅ Successfully added {coach_user.mention} as team coach!", ephemeral=True)
+            
+            # Delete user's message
+            try:
+                await msg.delete()
+            except:
+                pass
+                
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
+    
+    @discord.ui.button(label="👔 Add Manager", style=discord.ButtonStyle.success, custom_id="add_manager", row=1)
+    async def add_manager_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Add a manager to the team (max 2)."""
+        # Check manager slots
+        manager_1 = self.staff_data.get('manager_1_id')
+        manager_2 = self.staff_data.get('manager_2_id')
+        
+        if manager_1 and manager_2:
+            await interaction.response.send_message("❌ Team already has 2 managers (maximum limit).", ephemeral=True)
+            return
+        
+        await interaction.response.send_message(
+            "👔 **Add Manager**\n\n"
+            f"Available slots: {2 - sum([1 for m in [manager_1, manager_2] if m])} / 2\n\n"
+            "Please mention the user you want to add as manager.\n\n"
+            "*Waiting for mention... (30 seconds)*",
+            ephemeral=True
+        )
+        
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+        
+        try:
+            msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
+            
+            if not msg.mentions:
+                await interaction.followup.send("❌ Please mention a user to add as manager.", ephemeral=True)
+                return
+            
+            manager_user = msg.mentions[0]
+            
+            # Add manager to first available slot
+            if not manager_1:
+                await db.add_team_manager(self.team_data['id'], manager_user.id, slot=1)
+            else:
+                await db.add_team_manager(self.team_data['id'], manager_user.id, slot=2)
+            
+            await interaction.followup.send(f"✅ Successfully added {manager_user.mention} as team manager!", ephemeral=True)
+            
+            # Delete user's message
+            try:
+                await msg.delete()
+            except:
+                pass
+                
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
+    
+    @discord.ui.button(label="❌ Remove Coach", style=discord.ButtonStyle.danger, custom_id="remove_coach", row=2)
+    async def remove_coach_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Remove the team coach."""
+        if not self.staff_data.get('coach_id'):
+            await interaction.response.send_message("❌ Team doesn't have a coach.", ephemeral=True)
+            return
+        
+        coach_id = self.staff_data['coach_id']
+        
+        await interaction.response.send_message(
+            f"❌ **Remove Coach**\n\n"
+            f"Are you sure you want to remove <@{coach_id}> as coach?\n\n"
+            "Reply with `yes` to confirm or `no` to cancel.\n\n"
+            "*Waiting for response... (15 seconds)*",
+            ephemeral=True
+        )
+        
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id and m.content.lower() in ['yes', 'no']
+        
+        try:
+            msg = await interaction.client.wait_for('message', timeout=15.0, check=check)
+            
+            if msg.content.lower() == 'yes':
+                await db.remove_team_coach(self.team_data['id'])
+                await interaction.followup.send(f"✅ Successfully removed <@{coach_id}> as team coach!", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Coach removal cancelled.", ephemeral=True)
+            
+            # Delete user's message
+            try:
+                await msg.delete()
+            except:
+                pass
+                
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Coach removal cancelled.", ephemeral=True)
+    
+    @discord.ui.button(label="❌ Remove Manager", style=discord.ButtonStyle.danger, custom_id="remove_manager", row=2)
+    async def remove_manager_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Remove a team manager."""
+        manager_1 = self.staff_data.get('manager_1_id')
+        manager_2 = self.staff_data.get('manager_2_id')
+        
+        if not manager_1 and not manager_2:
+            await interaction.response.send_message("❌ Team doesn't have any managers.", ephemeral=True)
+            return
+        
+        # Show list of managers
+        manager_list = ""
+        if manager_1:
+            manager_list += f"1. <@{manager_1}>\n"
+        if manager_2:
+            manager_list += f"2. <@{manager_2}>\n"
+        
+        await interaction.response.send_message(
+            "❌ **Remove Manager**\n\n"
+            f"Current Managers:\n{manager_list}\n"
+            "Please mention the manager you want to remove.\n\n"
+            "*Waiting for mention... (30 seconds)*",
+            ephemeral=True
+        )
+        
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+        
+        try:
+            msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
+            
+            if not msg.mentions:
+                await interaction.followup.send("❌ Please mention a manager to remove.", ephemeral=True)
+                return
+            
+            target_user = msg.mentions[0]
+            
+            # Check which slot
+            if target_user.id == manager_1:
+                await db.remove_team_manager(self.team_data['id'], slot=1)
+                await interaction.followup.send(f"✅ Successfully removed {target_user.mention} as manager!", ephemeral=True)
+            elif target_user.id == manager_2:
+                await db.remove_team_manager(self.team_data['id'], slot=2)
+                await interaction.followup.send(f"✅ Successfully removed {target_user.mention} as manager!", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ {target_user.mention} is not a manager of this team.", ephemeral=True)
+            
+            # Delete user's message
+            try:
+                await msg.delete()
+            except:
+                pass
+                
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
 
 class TeamProfileEditView(discord.ui.View):
     """Edit view for team profile - Captain and Managers only."""

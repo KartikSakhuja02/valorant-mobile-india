@@ -1450,3 +1450,173 @@ async def update_player_team(discord_id: int, team_id: int):
             SET team_id = $1, updated_at = NOW()
             WHERE discord_id = $2
         """, team_id, discord_id)
+
+
+# ============= TEAM MANAGEMENT FUNCTIONS =============
+
+async def add_player_to_team(team_id: int, discord_id: int, ign: str):
+    """Add a player to a team."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Update player's team_id
+            await conn.execute("""
+                UPDATE players
+                SET team_id = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE discord_id = $2
+            """, team_id, discord_id)
+            
+            # Get current team members
+            team = await conn.fetchrow("SELECT members FROM teams WHERE id = $1", team_id)
+            members = team['members'] if team else []
+            
+            if isinstance(members, str):
+                import json
+                members = json.loads(members)
+            
+            # Add new member
+            new_member = {
+                'discord_id': discord_id,
+                'ign': ign,
+                'kills': 0,
+                'deaths': 0,
+                'assists': 0
+            }
+            members.append(new_member)
+            
+            # Update team members
+            await conn.execute("""
+                UPDATE teams
+                SET members = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+            """, json.dumps(members), team_id)
+
+
+async def remove_player_from_team(team_id: int, discord_id: int):
+    """Remove a player from a team."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Remove player's team_id
+            await conn.execute("""
+                UPDATE players
+                SET team_id = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE discord_id = $1
+            """, discord_id)
+            
+            # Get current team members
+            team = await conn.fetchrow("SELECT members FROM teams WHERE id = $1", team_id)
+            members = team['members'] if team else []
+            
+            if isinstance(members, str):
+                import json
+                members = json.loads(members)
+            
+            # Remove member
+            members = [m for m in members if isinstance(m, dict) and m.get('discord_id') != discord_id]
+            
+            # Update team members
+            await conn.execute("""
+                UPDATE teams
+                SET members = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+            """, json.dumps(members), team_id)
+
+
+async def transfer_team_captainship(team_id: int, new_captain_id: int):
+    """Transfer team captainship to another member."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE teams
+            SET captain_id = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+        """, new_captain_id, team_id)
+
+
+async def add_team_coach(team_id: int, coach_id: int):
+    """Add a coach to the team."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Check if team_staff record exists
+        staff = await conn.fetchrow("""
+            SELECT * FROM team_staff WHERE team_id = $1
+        """, team_id)
+        
+        if staff:
+            # Update existing record
+            await conn.execute("""
+                UPDATE team_staff
+                SET coach_id = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE team_id = $2
+            """, coach_id, team_id)
+        else:
+            # Create new record
+            await conn.execute("""
+                INSERT INTO team_staff (team_id, coach_id, created_at, updated_at)
+                VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, team_id, coach_id)
+
+
+async def remove_team_coach(team_id: int):
+    """Remove the coach from the team."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE team_staff
+            SET coach_id = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE team_id = $1
+        """, team_id)
+
+
+async def add_team_manager(team_id: int, manager_id: int, slot: int):
+    """Add a manager to the team (slot 1 or 2)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Check if team_staff record exists
+        staff = await conn.fetchrow("""
+            SELECT * FROM team_staff WHERE team_id = $1
+        """, team_id)
+        
+        if slot == 1:
+            if staff:
+                await conn.execute("""
+                    UPDATE team_staff
+                    SET manager_1_id = $1, updated_at = CURRENT_TIMESTAMP
+                    WHERE team_id = $2
+                """, manager_id, team_id)
+            else:
+                await conn.execute("""
+                    INSERT INTO team_staff (team_id, manager_1_id, created_at, updated_at)
+                    VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, team_id, manager_id)
+        else:  # slot 2
+            if staff:
+                await conn.execute("""
+                    UPDATE team_staff
+                    SET manager_2_id = $1, updated_at = CURRENT_TIMESTAMP
+                    WHERE team_id = $2
+                """, manager_id, team_id)
+            else:
+                await conn.execute("""
+                    INSERT INTO team_staff (team_id, manager_2_id, created_at, updated_at)
+                    VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, team_id, manager_id)
+
+
+async def remove_team_manager(team_id: int, slot: int):
+    """Remove a manager from the team (slot 1 or 2)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if slot == 1:
+            await conn.execute("""
+                UPDATE team_staff
+                SET manager_1_id = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE team_id = $1
+            """, team_id)
+        else:  # slot 2
+            await conn.execute("""
+                UPDATE team_staff
+                SET manager_2_id = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE team_id = $1
+            """, team_id)
