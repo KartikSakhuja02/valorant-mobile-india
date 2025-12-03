@@ -688,40 +688,83 @@ def _mask_hsv(hsv: np.ndarray, ranges_deg, s_min: float, v_min: float):
 
 def _score_patch(patch_rgb: np.ndarray):
     """
-    Score a color patch for team detection.
-    Returns: (blue_score, red_score, is_gold)
+    Score a color patch for team detection with enhanced confidence.
+    Returns: (blue_score, red_score, is_gold, confidence_details)
     - blue_score: confidence this is Team A (blue/cyan color)
     - red_score: confidence this is Team B (red color)
     - is_gold: True if this player has gold/yellow outline (MVP/top fragger)
+    - confidence_details: dict with scoring breakdown for debugging
     """
     if patch_rgb.size == 0:
-        return 0.0, 0.0, False
+        return 0.0, 0.0, False, {"valid": False, "reason": "empty_patch"}
+    
     flat = patch_rgb.reshape(-1, 3).astype(np.uint8)
     hsv = _rgb_to_hsv01(flat)
     
     # Expanded Blue/Cyan range for Team A (more permissive)
-    blue = _mask_hsv(hsv, [(170, 230)], 0.20, 0.20)
+    blue_mask = _mask_hsv(hsv, [(170, 230)], 0.20, 0.20)
+    blue_score = float(blue_mask.mean())
     
     # Red for Team B (slightly expanded)
-    red = _mask_hsv(hsv, [(0, 25), (335, 360)], 0.30, 0.20)
+    red_mask = _mask_hsv(hsv, [(0, 25), (335, 360)], 0.30, 0.20)
+    red_score = float(red_mask.mean())
     
     # Gold/Yellow outline (more permissive to catch edge cases)
-    gold = _mask_hsv(hsv, [(25, 65)], 0.30, 0.35)
+    gold_mask = _mask_hsv(hsv, [(25, 65)], 0.30, 0.35)
+    is_gold = bool(gold_mask.any())
+    gold_percentage = float(gold_mask.mean())
     
-    return float(blue.mean()), float(red.mean()), bool(gold.any())
+    # Calculate average saturation and value for quality check
+    avg_saturation = float(hsv[:, 1].mean())
+    avg_value = float(hsv[:, 2].mean())
+    
+    # Boost confidence if saturation and value are good
+    quality_multiplier = 1.0
+    if avg_saturation > 0.3 and avg_value > 0.3:
+        quality_multiplier = 1.2  # 20% boost for high-quality colors
+    elif avg_saturation < 0.15 or avg_value < 0.15:
+        quality_multiplier = 0.8  # 20% penalty for washed-out colors
+    
+    blue_score *= quality_multiplier
+    red_score *= quality_multiplier
+    
+    confidence_details = {
+        "valid": True,
+        "blue_raw": float(blue_mask.mean()),
+        "red_raw": float(red_mask.mean()),
+        "blue_adjusted": blue_score,
+        "red_adjusted": red_score,
+        "gold_percentage": gold_percentage,
+        "avg_saturation": avg_saturation,
+        "avg_value": avg_value,
+        "quality_multiplier": quality_multiplier,
+        "pixels_analyzed": len(flat)
+    }
+    
+    return blue_score, red_score, is_gold, confidence_details
 
-def _row_team_from_patches(patches: List[np.ndarray], row_idx: int = None):
+def _row_team_from_patches(patches: List[np.ndarray], row_idx: int = None, debug: bool = False):
     """
-    Determine team from color patches.
+    Determine team from color patches with enhanced confidence and debugging.
     Blue = Team A, Red = Team B
-    Returns: ("A", is_gold) or ("B", is_gold)
+    Returns: ("A", is_gold, debug_info) or ("B", is_gold, debug_info)
+    debug_info contains detailed scoring information for troubleshooting
     """
     b_list, r_list, golds = [], [], []
-    for p in patches:
-        b, r, gold = _score_patch(p)
+    patch_details = []
+    
+    for i, p in enumerate(patches):
+        b, r, gold, details = _score_patch(p)
         b_list.append(b)
         r_list.append(r)
         golds.append(gold)
+        patch_details.append({
+            "patch_id": i,
+            "blue": b,
+            "red": r,
+            "gold": gold,
+            "details": details
+        })
     
     # Weight patches differently - emphasize left and center patches more
     # Left patches near IGN are most reliable for team color
@@ -730,24 +773,63 @@ def _row_team_from_patches(patches: List[np.ndarray], row_idx: int = None):
     red_score = float((np.array(r_list) * weights).sum())
     has_gold = any(golds)
     
-    # Calculate confidence - if one color is clearly dominant, use it
+    # Calculate confidence metrics
     total_score = blue_score + red_score
+    blue_confidence = 0.0
+    red_confidence = 0.0
+    confidence_level = "low"
+    assignment_reason = "fallback"
+    
     if total_score > 0:
         blue_confidence = blue_score / total_score
         red_confidence = red_score / total_score
         
+        # Determine confidence level based on score separation
+        score_diff = abs(blue_confidence - red_confidence)
+        if score_diff > 0.40:
+            confidence_level = "high"
+        elif score_diff > 0.20:
+            confidence_level = "medium"
+        
         # If one team is clearly dominant (>60%), assign to that team
         if blue_confidence > 0.60:
-            return "A", has_gold
+            team = "A"
+            assignment_reason = f"strong_blue_confidence ({blue_confidence:.2%})"
         elif red_confidence > 0.60:
-            return "B", has_gold
+            team = "B"
+            assignment_reason = f"strong_red_confidence ({red_confidence:.2%})"
+        else:
+            # Close call - use weighted score with small blue bias
+            if abs(blue_score - red_score) < 0.15:
+                blue_score += 0.05
+                assignment_reason = "close_call_with_blue_bias"
+            else:
+                assignment_reason = "weighted_score_comparison"
+            team = "A" if blue_score >= red_score else "B"
+    else:
+        # No color detected at all - default to alternating pattern
+        team = "A" if (row_idx is not None and row_idx < 5) else "B"
+        assignment_reason = "no_color_detected_using_position"
+        confidence_level = "none"
     
-    # Fallback: small bias towards blue if very close
-    if abs(blue_score - red_score) < 0.15:
-        blue_score += 0.05
+    debug_info = {
+        "row_idx": row_idx,
+        "blue_score_weighted": blue_score,
+        "red_score_weighted": red_score,
+        "blue_confidence": blue_confidence,
+        "red_confidence": red_confidence,
+        "has_gold": has_gold,
+        "confidence_level": confidence_level,
+        "assignment_reason": assignment_reason,
+        "team_assigned": team,
+        "patches": patch_details
+    }
     
-    team = "A" if blue_score >= red_score else "B"
-    return team, has_gold
+    # Print debug info if enabled
+    if debug and row_idx is not None:
+        print(f"🔍 Row {row_idx}: Team={team} | Blue={blue_score:.2f} ({blue_confidence:.1%}) | Red={red_score:.2f} ({red_confidence:.1%}) | Gold={has_gold} | Confidence={confidence_level} | Reason={assignment_reason}")
+    
+    return team, has_gold, debug_info
 
 def _sample_color_patches(img: Image.Image, row_idx: int) -> List[np.ndarray]:
     im = img.convert("RGB")
@@ -1043,6 +1125,9 @@ class OCRScanner(commands.Cog):
                 await interaction.followup.send("❌ Failed to extract match data. Please ensure the screenshot shows the end-game scoreboard clearly.")
                 return
             
+            # Validate and correct team assignments using color detection
+            result = self.validate_and_correct_teams(png_bytes, result, enable_correction=True)
+            
             # Get registered players from database
             try:
                 all_players = await db.get_all_players()
@@ -1074,18 +1159,104 @@ class OCRScanner(commands.Cog):
             
             print(f"📊 Extracted data - Map: {map_name}, Team A: {len(team_a)} players, Team B: {len(team_b)} players")
             
+            # Enhanced validation with helpful error messages
+            validation_errors = []
+            
+            # Validate teams exist
             if not team_a or not team_b:
-                await interaction.followup.send("❌ Could not extract team data. Please ensure the screenshot is clear and shows the full scoreboard with team colors visible.")
+                validation_errors.append("❌ Could not detect teams from the scoreboard")
+                validation_errors.append("💡 **Tips:**")
+                validation_errors.append("  • Ensure the screenshot shows the complete end-game scoreboard")
+                validation_errors.append("  • Team colors (green/red backgrounds) should be clearly visible")
+                validation_errors.append("  • Take the screenshot in good lighting/contrast settings")
+            
+            # Validate team sizes
+            elif len(team_a) < 5 or len(team_b) < 5:
+                validation_errors.append(f"⚠️ Incomplete teams detected (Team A: {len(team_a)}, Team B: {len(team_b)})")
+                validation_errors.append("💡 **Expected:** 5 players per team")
+                validation_errors.append("💡 **Tips:**")
+                validation_errors.append("  • Make sure all 10 player rows are visible in the screenshot")
+                validation_errors.append("  • Don't crop the screenshot - capture the full scoreboard")
+                validation_errors.append("  • Verify that player name backgrounds (green/red) are visible")
+            
+            # Validate team sizes aren't too large
+            elif len(team_a) > 5 or len(team_b) > 5:
+                validation_errors.append(f"⚠️ Too many players detected (Team A: {len(team_a)}, Team B: {len(team_b)})")
+                validation_errors.append("💡 **Expected:** Exactly 5 players per team")
+                validation_errors.append("💡 **Tips:**")
+                validation_errors.append("  • Make sure only the player rows are visible (no UI elements)")
+                validation_errors.append("  • Crop out any headers, timers, or buttons")
+                
+                # Auto-fix: try to trim to 5 players each if close
+                if len(team_a) == 6 or len(team_b) == 6:
+                    print("🔧 Attempting auto-fix: trimming extra players...")
+                    team_a = team_a[:5]
+                    team_b = team_b[:5]
+                    result['team_a'] = team_a
+                    result['team_b'] = team_b
+                    validation_errors.clear()
+                    print("✅ Auto-fix applied: teams trimmed to 5 players each")
+            
+            # Validate scores are reasonable
+            if team_a_score < 0 or team_b_score < 0:
+                validation_errors.append(f"⚠️ Invalid scores detected (Team A: {team_a_score}, Team B: {team_b_score})")
+            elif team_a_score > 25 or team_b_score > 25:
+                validation_errors.append(f"⚠️ Unusual scores detected (Team A: {team_a_score}, Team B: {team_b_score})")
+                validation_errors.append("💡 **Note:** VALORANT Mobile scores typically don't exceed 13-25")
+            elif team_a_score == 0 and team_b_score == 0:
+                validation_errors.append("⚠️ Could not extract match scores")
+                validation_errors.append("💡 **Tip:** Make sure the score display at the top is clearly visible")
+            
+            # Validate player data quality
+            if team_a and team_b:
+                missing_stats = []
+                for i, player in enumerate(team_a + team_b):
+                    ign = player.get('ign', player.get('name', ''))
+                    if not ign or ign == 'Unknown' or ign.startswith('PLAYER_'):
+                        missing_stats.append(f"Row {i+1}: Could not read player name")
+                    
+                    kills = player.get('kills')
+                    deaths = player.get('deaths')
+                    assists = player.get('assists')
+                    if kills is None or deaths is None or assists is None:
+                        missing_stats.append(f"Row {i+1} ({ign}): Missing K/D/A stats")
+                
+                if len(missing_stats) > 3:
+                    validation_errors.append(f"⚠️ Could not read data for {len(missing_stats)} players")
+                    validation_errors.append("💡 **Tips:**")
+                    validation_errors.append("  • Ensure player names and K/D/A stats are clearly visible")
+                    validation_errors.append("  • Increase screenshot resolution or quality")
+                    validation_errors.append("  • Avoid motion blur or low-light screenshots")
+            
+            # If there are validation errors, show them and stop
+            if validation_errors:
+                error_message = "\n".join(validation_errors)
+                await interaction.followup.send(error_message)
                 return
             
-            if len(team_a) < 5 or len(team_b) < 5:
-                await interaction.followup.send(f"⚠️ Incomplete teams extracted (Team A: {len(team_a)}, Team B: {len(team_b)}). Expected 5 players each.\n\nTip: Make sure the screenshot shows all players with their colored backgrounds (green/red) visible.")
-                return
+            # Determine winner based on color detection logic
+            # Cyan/Green background = winning team (Team A)
+            # Red/Pink background = losing team (Team B)
+            # So if Team A has cyan players, Team A won
+            # The higher score belongs to the winning team
             
-            # Determine winner
-            winner = "Team A (Green)" if team_a_score > team_b_score else "Team B (Red)"
-            winning_team = team_a if team_a_score > team_b_score else team_b
-            losing_team = team_b if team_a_score > team_b_score else team_a
+            # In VALORANT Mobile scoreboards:
+            # - Winning team (cyan/green background) is always shown first = Team A
+            # - Losing team (red/pink background) is shown second = Team B
+            # - So Team A score should be >= Team B score (winners on top)
+            
+            # Determine winner based on team colors (cyan wins, red loses)
+            winner = "Team A (Cyan)" 
+            winning_team = team_a  # Cyan players are winners
+            losing_team = team_b   # Red players are losers
+            
+            # Verify scores match this logic (winning team should have higher score)
+            if team_b_score > team_a_score:
+                print(f"⚠️ Score mismatch detected: Team A (cyan/winning) has {team_a_score} but Team B (red/losing) has {team_b_score}")
+                print(f"   This suggests teams may be reversed - swapping interpretation")
+                winner = "Team B (Red)"
+                winning_team = team_b
+                losing_team = team_a
             
             # Find MVP (player with most kills in winning team)
             mvp = None
@@ -1103,7 +1274,7 @@ class OCRScanner(commands.Cog):
             # Create embed
             embed = discord.Embed(
                 title="📊 MATCH RESULTS",
-                description=f"**Map:** {map_name} 🗺️\n**Score:** {team_a_score} — {team_b_score}\n**Status:** {winner}\n**Players:** {registered_count} registered • {total_players - registered_count} unregistered",
+                description=f"**Map:** {map_name} 🗺️\n**Score:** {team_a_score} — {team_b_score}\n**Winner:** {winner}\n**Players:** {registered_count} registered • {total_players - registered_count} unregistered",
                 color=discord.Color.green() if 'Team A' in winner else discord.Color.red()
             )
             
@@ -1125,7 +1296,7 @@ class OCRScanner(commands.Cog):
                 team_a_text += f"{status_icon} **{name}**{star} • `{kills}/{deaths}/{assists}`\n"
             
             embed.add_field(
-                name=f"🟢 Team A (Green) - {team_a_score}",
+                name=f"🟢 Team A (Cyan/Winners) - {team_a_score}",
                 value=team_a_text or "No data",
                 inline=False
             )
@@ -1146,14 +1317,30 @@ class OCRScanner(commands.Cog):
                 team_b_text += f"{status_icon} **{name}** • `{kills}/{deaths}/{assists}`\n"
             
             embed.add_field(
-                name=f"🔴 Team B (Red) - {team_b_score}",
+                name=f"🔴 Team B (Red/Losers) - {team_b_score}",
                 value=team_b_text or "No data",
                 inline=False
             )
             
             # MVP - already marked with ⭐ in team display, no need for separate field
             
-            embed.set_footer(text="Scanned with Gemini AI • Data extracted from scoreboard")
+            # Add validation status footer
+            footer_parts = ["Scanned with Gemini AI"]
+            
+            # Check if teams were corrected
+            if result.get('_corrected'):
+                footer_parts.append("⚠️ Team assignments auto-corrected")
+            
+            # Check validation results
+            validation = result.get('_validation', {})
+            if validation.get('mismatches', 0) > 0 and not validation.get('corrected'):
+                footer_parts.append(f"⚠️ {validation['mismatches']} color mismatches detected")
+            
+            # Add confidence indicator
+            if validation.get('high_confidence_mismatches', 0) == 0 and validation.get('total_players') == 10:
+                footer_parts.append("✅ Validated")
+            
+            embed.set_footer(text=" • ".join(footer_parts))
             
             await interaction.followup.send(embed=embed)
             
@@ -1179,6 +1366,110 @@ class OCRScanner(commands.Cog):
             import traceback
             traceback.print_exc()
             return None
+    
+    def validate_and_correct_teams(self, image_bytes: bytes, parsed_data: dict, enable_correction: bool = True) -> dict:
+        """
+        Validate team assignments using color detection and correct if needed.
+        
+        Args:
+            image_bytes: Original PNG image bytes
+            parsed_data: Gemini-extracted data with team_a and team_b
+            enable_correction: If True, will attempt to correct team assignments
+        
+        Returns:
+            Corrected parsed_data with validation metadata
+        """
+        try:
+            # Load image
+            image = Image.open(io.BytesIO(image_bytes))
+            
+            # Get teams from parsed data
+            team_a = parsed_data.get('team_a', [])
+            team_b = parsed_data.get('team_b', [])
+            
+            if not team_a or not team_b:
+                print("⚠️ No teams to validate")
+                return parsed_data
+            
+            print("🔍 Validating team assignments with color detection...")
+            
+            # Analyze color for each player
+            validation_results = []
+            all_players = team_a + team_b
+            
+            for row_idx in range(len(all_players)):
+                # Sample color patches for this row
+                patches = _sample_color_patches(image, row_idx)
+                
+                # Get team assignment from color
+                color_team, is_gold, debug_info = _row_team_from_patches(patches, row_idx, debug=True)
+                
+                # Determine what Gemini assigned
+                gemini_team = "A" if row_idx < len(team_a) else "B"
+                
+                validation_results.append({
+                    "row": row_idx,
+                    "player": all_players[row_idx].get('ign', 'Unknown'),
+                    "gemini_team": gemini_team,
+                    "color_team": color_team,
+                    "match": gemini_team == color_team,
+                    "confidence": debug_info.get('confidence_level', 'unknown'),
+                    "is_gold": is_gold,
+                    "debug": debug_info
+                })
+            
+            # Count mismatches
+            mismatches = [v for v in validation_results if not v['match']]
+            high_confidence_mismatches = [v for v in mismatches if v['confidence'] in ['high', 'medium']]
+            
+            print(f"📊 Validation: {len(validation_results)} players | {len(mismatches)} mismatches | {len(high_confidence_mismatches)} high-confidence mismatches")
+            
+            # If we have significant mismatches and correction is enabled
+            if enable_correction and len(high_confidence_mismatches) >= 2:
+                print(f"⚠️ Detected {len(high_confidence_mismatches)} high-confidence team assignment errors - attempting correction...")
+                
+                # Rebuild teams based on color detection
+                corrected_team_a = []
+                corrected_team_b = []
+                
+                for result in validation_results:
+                    player = all_players[result['row']]
+                    if result['color_team'] == "A":
+                        corrected_team_a.append(player)
+                    else:
+                        corrected_team_b.append(player)
+                
+                # Only apply correction if we still have valid team sizes
+                if 3 <= len(corrected_team_a) <= 7 and 3 <= len(corrected_team_b) <= 7:
+                    print(f"✅ Applied color-based correction: Team A={len(corrected_team_a)}, Team B={len(corrected_team_b)}")
+                    parsed_data['team_a'] = corrected_team_a
+                    parsed_data['team_b'] = corrected_team_b
+                    parsed_data['_corrected'] = True
+                    parsed_data['_validation_results'] = validation_results
+                else:
+                    print(f"⚠️ Correction would produce invalid team sizes (A={len(corrected_team_a)}, B={len(corrected_team_b)}) - keeping original")
+            
+            elif len(mismatches) > 0:
+                print(f"⚠️ Found {len(mismatches)} mismatches but confidence too low or count too small for auto-correction")
+            else:
+                print("✅ All team assignments validated successfully")
+            
+            # Add validation metadata
+            parsed_data['_validation'] = {
+                "total_players": len(validation_results),
+                "mismatches": len(mismatches),
+                "high_confidence_mismatches": len(high_confidence_mismatches),
+                "corrected": parsed_data.get('_corrected', False)
+            }
+            
+            return parsed_data
+            
+        except Exception as e:
+            print(f"❌ Error in team validation: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return original data if validation fails
+            return parsed_data
 
 # ---- setup
 async def setup(bot: commands.Bot):
