@@ -1450,20 +1450,18 @@ class TeamManagementView(discord.ui.View):
         await interaction.response.send_message(
             "➖ **Remove Player from Team**\n\n"
             f"Current Members:\n{member_list}\n"
-            "Please mention the user you want to remove from the team.\n\n"
-            "*Waiting for mention... (30 seconds)*",
+            "Please mention (ping) the user you want to remove from the team in this channel.\n\n"
+            "*Waiting for your message... (30 seconds)*",
             ephemeral=True
         )
         
         def check(m):
-            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+            return (m.author.id == interaction.user.id and 
+                    m.channel.id == interaction.channel.id and
+                    len(m.mentions) > 0)
         
         try:
             msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
-            
-            if not msg.mentions:
-                await interaction.followup.send("❌ Please mention a user to remove.", ephemeral=True)
-                return
             
             target_user = msg.mentions[0]
             
@@ -1472,11 +1470,19 @@ class TeamManagementView(discord.ui.View):
             
             if not is_member:
                 await interaction.followup.send(f"❌ {target_user.mention} is not on this team.", ephemeral=True)
+                try:
+                    await msg.delete()
+                except:
+                    pass
                 return
             
             # Can't remove captain
             if target_user.id == self.team_data['captain_id']:
                 await interaction.followup.send("❌ Cannot remove the team captain. Transfer captainship first.", ephemeral=True)
+                try:
+                    await msg.delete()
+                except:
+                    pass
                 return
             
             # Get player info before removal
@@ -1528,6 +1534,8 @@ class TeamManagementView(discord.ui.View):
             except:
                 pass
                 
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
         except asyncio.TimeoutError:
             await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
     
