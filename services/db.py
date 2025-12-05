@@ -639,6 +639,26 @@ async def update_team_logo(team_id: int, logo_url: str) -> None:
             WHERE id = $2
         """, logo_url, team_id)
 
+async def update_team_name(team_id: int, name: str) -> None:
+    """Update team's name."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE teams
+            SET name = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+        """, name, team_id)
+
+async def update_team_tag(team_id: int, tag: str) -> None:
+    """Update team's tag."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE teams
+            SET tag = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+        """, tag, team_id)
+
 
 
 async def delete_team(team_id: int) -> None:

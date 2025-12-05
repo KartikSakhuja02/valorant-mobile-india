@@ -1098,14 +1098,136 @@ class TeamManagementView(discord.ui.View):
                 if hasattr(item, 'custom_id') and item.custom_id in ['transfer_captain', 'add_coach', 'remove_coach', 'add_manager', 'remove_manager']:
                     item.disabled = True
     
-    @discord.ui.button(label="➕ Add Player", style=discord.ButtonStyle.success, custom_id="add_player", row=0)
+    @discord.ui.button(label="✏️ Edit Team", style=discord.ButtonStyle.primary, custom_id="edit_team", row=0)
+    async def edit_team_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Edit team details (name, tag, logo)."""
+        await interaction.response.send_message(
+            "✏️ **Edit Team Details**\n\n"
+            "What would you like to edit?\n"
+            "• **Name** - Change team name\n"
+            "• **Tag** - Change team tag\n"
+            "• **Logo** - Change team logo\n\n"
+            "Reply with: `name`, `tag`, or `logo`\n\n"
+            "*Waiting for response... (30 seconds)*",
+            ephemeral=True
+        )
+        
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+        
+        try:
+            msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
+            choice = msg.content.lower().strip()
+            
+            try:
+                await msg.delete()
+            except:
+                pass
+            
+            if choice == "name":
+                await interaction.followup.send(
+                    "✏️ **Change Team Name**\n\n"
+                    f"Current name: **{self.team_data['name']}**\n\n"
+                    "Please type the new team name:\n\n"
+                    "*Waiting for response... (60 seconds)*",
+                    ephemeral=True
+                )
+                
+                name_msg = await interaction.client.wait_for('message', timeout=60.0, check=check)
+                new_name = name_msg.content.strip()
+                
+                try:
+                    await name_msg.delete()
+                except:
+                    pass
+                
+                # Check if name is already taken
+                existing = await db.get_team_by_name(new_name)
+                if existing and existing['id'] != self.team_data['id']:
+                    await interaction.followup.send(f"❌ Team name `{new_name}` is already taken!", ephemeral=True)
+                    return
+                
+                # Update team name
+                await db.update_team_name(self.team_data['id'], new_name)
+                await interaction.followup.send(f"✅ Team name updated to **{new_name}**!", ephemeral=True)
+                
+            elif choice == "tag":
+                await interaction.followup.send(
+                    "✏️ **Change Team Tag**\n\n"
+                    f"Current tag: **{self.team_data['tag']}**\n\n"
+                    "Please type the new team tag (2-5 characters):\n\n"
+                    "*Waiting for response... (30 seconds)*",
+                    ephemeral=True
+                )
+                
+                tag_msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
+                new_tag = tag_msg.content.strip().upper()
+                
+                try:
+                    await tag_msg.delete()
+                except:
+                    pass
+                
+                if len(new_tag) < 2 or len(new_tag) > 5:
+                    await interaction.followup.send("❌ Tag must be 2-5 characters!", ephemeral=True)
+                    return
+                
+                # Check if tag is already taken
+                all_teams = await db.get_all_teams()
+                tag_taken = any(t.get('tag', '').upper() == new_tag and t['id'] != self.team_data['id'] for t in all_teams)
+                
+                if tag_taken:
+                    await interaction.followup.send(f"❌ Team tag `{new_tag}` is already taken!", ephemeral=True)
+                    return
+                
+                # Update team tag
+                await db.update_team_tag(self.team_data['id'], new_tag)
+                await interaction.followup.send(f"✅ Team tag updated to **{new_tag}**!", ephemeral=True)
+                
+            elif choice == "logo":
+                await interaction.followup.send(
+                    "✏️ **Change Team Logo**\n\n"
+                    "Please upload an image or provide an image URL:\n\n"
+                    "*Waiting for response... (60 seconds)*",
+                    ephemeral=True
+                )
+                
+                logo_msg = await interaction.client.wait_for('message', timeout=60.0, check=check)
+                
+                logo_url = None
+                if logo_msg.attachments:
+                    attachment = logo_msg.attachments[0]
+                    if attachment.content_type and attachment.content_type.startswith('image/'):
+                        logo_url = attachment.url
+                elif logo_msg.content.startswith(('http://', 'https://')):
+                    logo_url = logo_msg.content.strip()
+                
+                try:
+                    await logo_msg.delete()
+                except:
+                    pass
+                
+                if not logo_url:
+                    await interaction.followup.send("❌ Please provide a valid image URL or attachment!", ephemeral=True)
+                    return
+                
+                # Update team logo
+                await db.update_team_logo(self.team_data['id'], logo_url)
+                await interaction.followup.send(f"✅ Team logo updated!", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Invalid choice. Please reply with `name`, `tag`, or `logo`.", ephemeral=True)
+                
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
+    
+    @discord.ui.button(label="➕ Add Player", style=discord.ButtonStyle.success, custom_id="add_player", row=1)
     async def add_player_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Add a player to the team."""
         await interaction.response.send_message(
-            "➕ **Add Player to Team**\n\n"
-            "Please mention the user you want to add to the team.\n"
-            "They must be registered in the tournament.\n\n"
-            "*Waiting for mention... (30 seconds)*",
+            "➕ **Invite Player to Team**\n\n"
+            "Please mention the user you want to invite to the team.\n"
+            "*Example: @username*\n\n"
+            "Waiting for your mention... (30 seconds)",
             ephemeral=True
         )
         
@@ -1116,37 +1238,145 @@ class TeamManagementView(discord.ui.View):
             msg = await interaction.client.wait_for('message', timeout=30.0, check=check)
             
             if not msg.mentions:
-                await interaction.followup.send("❌ Please mention a user to add.", ephemeral=True)
+                await interaction.followup.send("❌ Please mention a user.", ephemeral=True)
                 return
             
-            target_user = msg.mentions[0]
+            user = msg.mentions[0]
             
-            # Check if player is registered
-            player = await db.get_player(target_user.id)
+            # Check if user is registered
+            player = await db.get_player(user.id)
             if not player:
-                await interaction.followup.send(f"❌ {target_user.mention} is not registered in the tournament.", ephemeral=True)
+                await interaction.followup.send(f"❌ {user.mention} must be registered as a player first!", ephemeral=True)
                 return
             
-            # Check if player is already on a team
-            if player.get('team_id'):
-                await interaction.followup.send(f"❌ {target_user.mention} is already on a team.", ephemeral=True)
+            # Check if user is already on a team
+            existing_team = await db.get_player_team(user.id)
+            if existing_team:
+                await interaction.followup.send(
+                    f"❌ {user.mention} is already on team **{existing_team['name']}**. "
+                    f"They must leave that team first.",
+                    ephemeral=True
+                )
                 return
             
-            # Check roster limit (5 players)
-            members_data = self.team_data.get('members', [])
-            if isinstance(members_data, str):
-                members_data = json.loads(members_data)
-            
-            if len(members_data) >= 5:
-                await interaction.followup.send("❌ Team roster is full (maximum 5 players).", ephemeral=True)
+            # Send invite to player via DM
+            try:
+                dm_channel = await user.create_dm()
+                
+                invite_view = discord.ui.View(timeout=300)
+                
+                accept_button = discord.ui.Button(
+                    label="✅ Accept Invite",
+                    style=discord.ButtonStyle.success,
+                    custom_id="accept_invite"
+                )
+                
+                decline_button = discord.ui.Button(
+                    label="❌ Decline Invite",
+                    style=discord.ButtonStyle.danger,
+                    custom_id="decline_invite"
+                )
+                
+                async def accept_callback(button_interaction: discord.Interaction):
+                    if button_interaction.user.id != user.id:
+                        await button_interaction.response.send_message("❌ This invite is not for you!", ephemeral=True)
+                        return
+                    
+                    await button_interaction.response.defer()
+                    
+                    # Add player to team
+                    try:
+                        await db.add_team_member(self.team_data['id'], user.id)
+                        
+                        # Update player's team in leaderboard
+                        await db.update_player_team(user.id, self.team_data['id'])
+                        
+                        await button_interaction.followup.send(
+                            f"✅ **You've joined {self.team_data['name']}!**\n"
+                            f"Team Tag: [{self.team_data['tag']}]\n"
+                            f"Captain: <@{self.team_data['captain_id']}>\n\n"
+                            f"Use `/team-profile` to view your team!"
+                        )
+                        
+                        # Notify the captain/manager
+                        try:
+                            inviter = await interaction.client.fetch_user(interaction.user.id)
+                            inviter_dm = await inviter.create_dm()
+                            await inviter_dm.send(
+                                f"✅ **{user.mention} ({player['ign']}) has accepted your invite!**\n"
+                                f"They are now part of **{self.team_data['name']}**."
+                            )
+                        except:
+                            pass
+                        
+                        # Disable buttons
+                        for item in invite_view.children:
+                            item.disabled = True
+                        await button_interaction.message.edit(view=invite_view)
+                        
+                    except Exception as e:
+                        await button_interaction.followup.send(f"❌ Error joining team: {e}")
+                
+                async def decline_callback(button_interaction: discord.Interaction):
+                    if button_interaction.user.id != user.id:
+                        await button_interaction.response.send_message("❌ This invite is not for you!", ephemeral=True)
+                        return
+                    
+                    await button_interaction.response.defer()
+                    
+                    await button_interaction.followup.send(
+                        f"❌ You've declined the invite to **{self.team_data['name']}**."
+                    )
+                    
+                    # Notify the captain/manager
+                    try:
+                        inviter = await interaction.client.fetch_user(interaction.user.id)
+                        inviter_dm = await inviter.create_dm()
+                        await inviter_dm.send(
+                            f"❌ **{user.mention} ({player['ign']}) has declined your invite.**\n"
+                            f"Team: **{self.team_data['name']}**"
+                        )
+                    except:
+                        pass
+                    
+                    # Disable buttons
+                    for item in invite_view.children:
+                        item.disabled = True
+                    await button_interaction.message.edit(view=invite_view)
+                
+                accept_button.callback = accept_callback
+                decline_button.callback = decline_callback
+                
+                invite_view.add_item(accept_button)
+                invite_view.add_item(decline_button)
+                
+                invite_embed = discord.Embed(
+                    title="🎮 Team Invite",
+                    description=f"**{interaction.user.display_name}** has invited you to join their team!",
+                    color=discord.Color.blue()
+                )
+                invite_embed.add_field(name="Team Name", value=self.team_data['name'], inline=True)
+                invite_embed.add_field(name="Team Tag", value=f"[{self.team_data['tag']}]", inline=True)
+                invite_embed.add_field(name="Region", value=self.team_data['region'].upper(), inline=True)
+                invite_embed.add_field(name="Captain", value=f"<@{self.team_data['captain_id']}>", inline=False)
+                invite_embed.set_footer(text="This invite expires in 5 minutes")
+                
+                await dm_channel.send(embed=invite_embed, view=invite_view)
+                
+                await interaction.followup.send(
+                    f"✅ Invite sent to {user.mention}!\n"
+                    f"They will receive a DM to accept or decline.",
+                    ephemeral=True
+                )
+                
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    f"❌ Could not send DM to {user.mention}. They may have DMs disabled.\n"
+                    f"Ask them to enable DMs from server members and try again.",
+                    ephemeral=True
+                )
                 return
             
-            # Add player to team
-            await db.add_player_to_team(self.team_data['id'], target_user.id, player['ign'])
-            
-            await interaction.followup.send(f"✅ Successfully added {target_user.mention} ({player['ign']}) to the team!", ephemeral=True)
-            
-            # Delete user's message
             try:
                 await msg.delete()
             except:
@@ -1155,7 +1385,7 @@ class TeamManagementView(discord.ui.View):
         except asyncio.TimeoutError:
             await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
     
-    @discord.ui.button(label="➖ Remove Player", style=discord.ButtonStyle.danger, custom_id="remove_player", row=0)
+    @discord.ui.button(label="➖ Remove Player", style=discord.ButtonStyle.danger, custom_id="remove_player", row=1)
     async def remove_player_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Remove a player from the team."""
         # Get current members
@@ -1219,7 +1449,7 @@ class TeamManagementView(discord.ui.View):
         except asyncio.TimeoutError:
             await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
     
-    @discord.ui.button(label="👑 Transfer Captain", style=discord.ButtonStyle.primary, custom_id="transfer_captain", row=0)
+    @discord.ui.button(label="👑 Transfer Captain", style=discord.ButtonStyle.primary, custom_id="transfer_captain", row=1)
     async def transfer_captain_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Transfer captainship to another team member."""
         # Get current members (excluding captain)
