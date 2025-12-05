@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from discord.ui import View, Button, Modal, TextInput
+from discord.ui import View, Button
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 import os
@@ -12,119 +12,159 @@ from io import BytesIO
 from datetime import datetime
 from services import db
 
-# Modal for editing IGN
-class EditIGNModal(Modal, title="Update IGN"):
-    new_ign = TextInput(
-        label="New In-Game Name",
-        placeholder="Enter your new IGN...",
-        required=True,
-        max_length=50
-    )
-    
-    def __init__(self, user: discord.Member):
-        super().__init__()
-        self.user = user
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            await db.update_player_ign(self.user.id, self.new_ign.value)
-            await interaction.followup.send(
-                f"✅ IGN updated to **{self.new_ign.value}**!\nRun `/profile` to see the changes.",
-                ephemeral=True
-            )
-        except Exception as e:
-            await interaction.followup.send(f"❌ Error updating IGN: {e}", ephemeral=True)
+# Helper to get config values
+_CONFIG_JSON = None
+def _load_config_json():
+    global _CONFIG_JSON
+    if _CONFIG_JSON is not None:
+        return _CONFIG_JSON
+    try:
+        path = Path(__file__).parent.parent / 'config.json'
+        if path.exists():
+            with open(path, 'r', encoding='utf-8') as f:
+                _CONFIG_JSON = json.load(f)
+                return _CONFIG_JSON
+    except Exception:
+        _CONFIG_JSON = {}
+    _CONFIG_JSON = {}
+    return _CONFIG_JSON
 
-# Modal for editing Player ID
-class EditPlayerIDModal(Modal, title="Update Player ID"):
-    new_id = TextInput(
-        label="New Player ID",
-        placeholder="Enter your new Player ID...",
-        required=True,
-        max_length=20
-    )
-    
-    def __init__(self, user: discord.Member):
-        super().__init__()
-        self.user = user
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            # Validate that it's numeric
-            player_id = int(self.new_id.value)
-            await db.update_player_id(self.user.id, player_id)
-            await interaction.followup.send(
-                f"✅ Player ID updated to **{player_id}**!\nRun `/profile` to see the changes.",
-                ephemeral=True
-            )
-        except ValueError:
-            await interaction.followup.send("❌ Player ID must be a number!", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Error updating Player ID: {e}", ephemeral=True)
+def cfg(key, default=None):
+    val = os.environ.get(key)
+    if val is not None:
+        return val
+    return _load_config_json().get(key, default)
 
-# View for region selection
+# View for region selection via DM
 class RegionSelectView(View):
-    def __init__(self, user: discord.Member):
-        super().__init__(timeout=180)
+    def __init__(self, user: discord.Member, guild: discord.Guild):
+        super().__init__(timeout=300)
         self.user = user
+        self.guild = guild
+        self.selected_region = None
     
     @discord.ui.button(label="NA", style=discord.ButtonStyle.primary, emoji="🌎")
     async def na_button(self, interaction: discord.Interaction, button: Button):
-        await self.update_region(interaction, "NA")
+        await self.select_region(interaction, "NA")
     
     @discord.ui.button(label="EU", style=discord.ButtonStyle.primary, emoji="🌍")
     async def eu_button(self, interaction: discord.Interaction, button: Button):
-        await self.update_region(interaction, "EU")
+        await self.select_region(interaction, "EU")
     
     @discord.ui.button(label="AP", style=discord.ButtonStyle.primary, emoji="🌏")
     async def ap_button(self, interaction: discord.Interaction, button: Button):
-        await self.update_region(interaction, "AP")
+        await self.select_region(interaction, "AP")
     
     @discord.ui.button(label="KR", style=discord.ButtonStyle.primary, emoji="🇰🇷")
     async def kr_button(self, interaction: discord.Interaction, button: Button):
-        await self.update_region(interaction, "KR")
+        await self.select_region(interaction, "KR")
     
     @discord.ui.button(label="BR", style=discord.ButtonStyle.primary, emoji="🇧🇷")
     async def br_button(self, interaction: discord.Interaction, button: Button):
-        await self.update_region(interaction, "BR")
+        await self.select_region(interaction, "BR")
     
     @discord.ui.button(label="LATAM", style=discord.ButtonStyle.primary, emoji="🌎")
     async def latam_button(self, interaction: discord.Interaction, button: Button):
-        await self.update_region(interaction, "LATAM")
+        await self.select_region(interaction, "LATAM")
     
     @discord.ui.button(label="JP", style=discord.ButtonStyle.primary, emoji="🇯🇵")
     async def jp_button(self, interaction: discord.Interaction, button: Button):
-        await self.update_region(interaction, "JP")
+        await self.select_region(interaction, "JP")
     
-    async def update_region(self, interaction: discord.Interaction, region: str):
+    async def select_region(self, interaction: discord.Interaction, region: str):
         if interaction.user.id != self.user.id:
-            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+            await interaction.response.send_message("❌ This is not for you!", ephemeral=True)
             return
         
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
+        self.selected_region = region
         
         try:
+            # Get old region
+            player_data = await db.get_player(self.user.id)
+            old_region = player_data.get('region', 'Unknown')
+            
+            # Update region in database
             await db.update_player_region(self.user.id, region)
-            await interaction.followup.send(
-                f"✅ Region updated to **{region}**!\nRun `/profile` to see the changes.",
-                ephemeral=True
-            )
-            # Disable all buttons
+            
+            # Get role IDs from config
+            role_map = {
+                'NA': cfg('ROLE_AMERICAS_ID'),
+                'EU': cfg('ROLE_EMEA_ID'),
+                'EMEA': cfg('ROLE_EMEA_ID'),
+                'AP': cfg('ROLE_APAC_ID'),
+                'APAC': cfg('ROLE_APAC_ID'),
+                'KR': cfg('ROLE_APAC_ID'),
+                'BR': cfg('ROLE_AMERICAS_ID'),
+                'LATAM': cfg('ROLE_AMERICAS_ID'),
+                'JP': cfg('ROLE_APAC_ID')
+            }
+            
+            # Get member in guild
+            member = self.guild.get_member(self.user.id)
+            if not member:
+                await interaction.followup.send(f"✅ Region updated to **{region}** in database!")
+                return
+            
+            # Remove old region role
+            old_role_id = role_map.get(old_region.upper())
+            if old_role_id:
+                try:
+                    old_role = self.guild.get_role(int(old_role_id))
+                    if old_role and old_role in member.roles:
+                        await member.remove_roles(old_role)
+                        print(f"Removed old region role: {old_role.name}")
+                except Exception as e:
+                    print(f"Error removing old role: {e}")
+            
+            # Add new region role
+            new_role_id = role_map.get(region)
+            if new_role_id:
+                try:
+                    new_role = self.guild.get_role(int(new_role_id))
+                    if new_role:
+                        await member.add_roles(new_role)
+                        print(f"Added new region role: {new_role.name}")
+                except Exception as e:
+                    print(f"Error adding new role: {e}")
+            
+            # If changing FROM AP to another region, remove India role
+            if old_region.upper() in ['AP', 'APAC'] and region not in ['AP', 'APAC']:
+                india_role_id = cfg('INDIA_ROLE_ID')
+                if india_role_id:
+                    try:
+                        india_role = self.guild.get_role(int(india_role_id))
+                        if india_role and india_role in member.roles:
+                            await member.remove_roles(india_role)
+                            await interaction.followup.send(
+                                f"✅ Region updated to **{region}**!\n"
+                                f"📍 Removed APAC region role\n"
+                                f"🇮🇳 Removed India role (no longer in APAC)"
+                            )
+                            # Disable buttons
+                            for item in self.children:
+                                item.disabled = True
+                            await interaction.message.edit(view=self)
+                            return
+                    except Exception as e:
+                        print(f"Error removing India role: {e}")
+            
+            await interaction.followup.send(f"✅ Region updated to **{region}**!")
+            
+            # Disable buttons
             for item in self.children:
                 item.disabled = True
             await interaction.message.edit(view=self)
+            
         except Exception as e:
-            await interaction.followup.send(f"❌ Error updating region: {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Error updating region: {e}")
 
 # View for India role toggle
 class IndiaToggleView(View):
-    def __init__(self, user: discord.Member, current_status: bool):
-        super().__init__(timeout=180)
+    def __init__(self, user: discord.Member, guild: discord.Guild, current_status: bool):
+        super().__init__(timeout=300)
         self.user = user
+        self.guild = guild
         self.current_status = current_status
     
     @discord.ui.button(label="✅ Yes, I'm from India", style=discord.ButtonStyle.green)
@@ -137,31 +177,50 @@ class IndiaToggleView(View):
     
     async def toggle_india(self, interaction: discord.Interaction, is_india: bool):
         if interaction.user.id != self.user.id:
-            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+            await interaction.response.send_message("❌ This is not for you!", ephemeral=True)
             return
         
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         
         try:
+            # Update in database
             await db.update_player_india_status(self.user.id, is_india)
+            
+            # Update India role
+            india_role_id = cfg('INDIA_ROLE_ID')
+            if india_role_id:
+                member = self.guild.get_member(self.user.id)
+                if member:
+                    india_role = self.guild.get_role(int(india_role_id))
+                    if india_role:
+                        if is_india and india_role not in member.roles:
+                            await member.add_roles(india_role)
+                        elif not is_india and india_role in member.roles:
+                            await member.remove_roles(india_role)
+            
             status_text = "from India" if is_india else "not from India"
+            role_action = "added" if is_india else "removed"
             await interaction.followup.send(
-                f"✅ India status updated! You are now marked as **{status_text}**.",
-                ephemeral=True
+                f"✅ India status updated! You are now marked as **{status_text}**.\n"
+                f"🇮🇳 India role {role_action}."
             )
-            # Disable all buttons
+            
+            # Disable buttons
             for item in self.children:
                 item.disabled = True
             await interaction.message.edit(view=self)
+            
         except Exception as e:
-            await interaction.followup.send(f"❌ Error updating India status: {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Error updating India status: {e}")
 
 # Main profile edit view
 class ProfileEditView(View):
-    def __init__(self, player_data: dict, user: discord.Member):
+    def __init__(self, player_data: dict, user: discord.Member, bot, guild: discord.Guild):
         super().__init__(timeout=300)
         self.player_data = player_data
         self.user = user
+        self.bot = bot
+        self.guild = guild
     
     @discord.ui.button(label="Edit IGN", style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_ign_button(self, interaction: discord.Interaction, button: Button):
@@ -169,8 +228,44 @@ class ProfileEditView(View):
             await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
             return
         
-        modal = EditIGNModal(self.user)
-        await interaction.response.send_modal(modal)
+        await interaction.response.send_message(
+            "📩 Check your DMs! I've sent you a message to update your IGN.",
+            ephemeral=True
+        )
+        
+        try:
+            dm_channel = await self.user.create_dm()
+            await dm_channel.send(
+                "✏️ **Edit IGN**\n\n"
+                f"Current IGN: **{self.player_data.get('ign', 'Unknown')}**\n\n"
+                "Please reply with your new IGN (you have 5 minutes):"
+            )
+            
+            def check(m):
+                return m.author.id == self.user.id and m.channel.id == dm_channel.id
+            
+            msg = await self.bot.wait_for('message', timeout=300, check=check)
+            new_ign = msg.content.strip()
+            
+            # Update IGN
+            await db.update_player_ign(self.user.id, new_ign)
+            await dm_channel.send(f"✅ IGN updated to **{new_ign}**!\nRun `/profile` to see the changes.")
+            
+        except asyncio.TimeoutError:
+            try:
+                await dm_channel.send("❌ Timed out. Please click the button again to retry.")
+            except:
+                pass
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ I couldn't send you a DM! Please enable DMs from server members.",
+                ephemeral=True
+            )
+        except Exception as e:
+            try:
+                await dm_channel.send(f"❌ Error updating IGN: {e}")
+            except:
+                pass
     
     @discord.ui.button(label="Edit Player ID", style=discord.ButtonStyle.primary, emoji="🆔")
     async def edit_id_button(self, interaction: discord.Interaction, button: Button):
@@ -178,8 +273,46 @@ class ProfileEditView(View):
             await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
             return
         
-        modal = EditPlayerIDModal(self.user)
-        await interaction.response.send_modal(modal)
+        await interaction.response.send_message(
+            "📩 Check your DMs! I've sent you a message to update your Player ID.",
+            ephemeral=True
+        )
+        
+        try:
+            dm_channel = await self.user.create_dm()
+            await dm_channel.send(
+                "🆔 **Edit Player ID**\n\n"
+                f"Current Player ID: **{self.player_data.get('player_id', 'Unknown')}**\n\n"
+                "Please reply with your new Player ID (numbers only, you have 5 minutes):"
+            )
+            
+            def check(m):
+                return m.author.id == self.user.id and m.channel.id == dm_channel.id
+            
+            msg = await self.bot.wait_for('message', timeout=300, check=check)
+            
+            try:
+                new_id = int(msg.content.strip())
+                await db.update_player_id(self.user.id, new_id)
+                await dm_channel.send(f"✅ Player ID updated to **{new_id}**!\nRun `/profile` to see the changes.")
+            except ValueError:
+                await dm_channel.send("❌ Player ID must be a number! Please try again.")
+                
+        except asyncio.TimeoutError:
+            try:
+                await dm_channel.send("❌ Timed out. Please click the button again to retry.")
+            except:
+                pass
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ I couldn't send you a DM! Please enable DMs from server members.",
+                ephemeral=True
+            )
+        except Exception as e:
+            try:
+                await dm_channel.send(f"❌ Error updating Player ID: {e}")
+            except:
+                pass
     
     @discord.ui.button(label="Change Region", style=discord.ButtonStyle.primary, emoji="🌍")
     async def change_region_button(self, interaction: discord.Interaction, button: Button):
@@ -187,12 +320,32 @@ class ProfileEditView(View):
             await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
             return
         
-        view = RegionSelectView(self.user)
-        await interaction.response.send_message(
-            "🌍 **Select your new region:**",
-            view=view,
-            ephemeral=True
-        )
+        try:
+            dm_channel = await self.user.create_dm()
+            view = RegionSelectView(self.user, self.guild)
+            
+            await interaction.response.send_message(
+                "📩 Check your DMs! I've sent you a message to update your region.",
+                ephemeral=True
+            )
+            
+            await dm_channel.send(
+                "🌍 **Change Region**\n\n"
+                f"Current Region: **{self.player_data.get('region', 'Unknown')}**\n\n"
+                "Please select your new region:",
+                view=view
+            )
+            
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I couldn't send you a DM! Please enable DMs from server members.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Error: {e}",
+                ephemeral=True
+            )
     
     @discord.ui.button(label="India Status", style=discord.ButtonStyle.primary, emoji="🇮🇳")
     async def india_status_button(self, interaction: discord.Interaction, button: Button):
@@ -200,14 +353,34 @@ class ProfileEditView(View):
             await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
             return
         
-        current_status = self.player_data.get('is_india', False)
-        view = IndiaToggleView(self.user, current_status)
-        current_text = "from India" if current_status else "not from India"
-        await interaction.response.send_message(
-            f"🇮🇳 **Update India Status**\n\nYou are currently marked as **{current_text}**.\nSelect your correct status:",
-            view=view,
-            ephemeral=True
-        )
+        try:
+            dm_channel = await self.user.create_dm()
+            current_status = self.player_data.get('is_india', False)
+            view = IndiaToggleView(self.user, self.guild, current_status)
+            
+            await interaction.response.send_message(
+                "📩 Check your DMs! I've sent you a message to update your India status.",
+                ephemeral=True
+            )
+            
+            current_text = "from India" if current_status else "not from India"
+            await dm_channel.send(
+                f"🇮🇳 **Update India Status**\n\n"
+                f"You are currently marked as **{current_text}**.\n\n"
+                "Please select your correct status:",
+                view=view
+            )
+            
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I couldn't send you a DM! Please enable DMs from server members.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Error: {e}",
+                ephemeral=True
+            )
 
 class Profiles(commands.Cog):
     def __init__(self, bot):
@@ -637,7 +810,7 @@ class Profiles(commands.Cog):
 
             # Show edit buttons only if viewing your own profile
             if target_user.id == interaction.user.id:
-                view = ProfileEditView(player_data, interaction.user)
+                view = ProfileEditView(player_data, interaction.user, self.bot, interaction.guild)
                 await interaction.followup.send(embed=profile_embed, view=view)
             else:
                 await interaction.followup.send(embed=profile_embed)
