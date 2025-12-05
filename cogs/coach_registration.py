@@ -322,11 +322,49 @@ class CoachRegistration(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
+        self.ui_sent = False
     
     @commands.Cog.listener()
     async def on_ready(self):
-        """Setup persistent view on bot ready"""
+        """Setup persistent view and send UI on bot ready"""
         self.bot.add_view(CoachRegistrationView())
+        
+        # Auto-send UI to coach registration channel
+        if not self.ui_sent:
+            coach_channel_id = cfg("channel_coach_reg_id")
+            if coach_channel_id:
+                try:
+                    channel = self.bot.get_channel(int(coach_channel_id))
+                    if channel:
+                        # Purge all messages in the channel
+                        await channel.purge(limit=100)
+                        
+                        # Send the registration UI
+                        embed = discord.Embed(
+                            title="🎓 Coach Registration",
+                            description=(
+                                "Want to become a coach for a team? Click the button below to get started!\n\n"
+                                "**Requirements:**\n"
+                                "• The team must not already have a coach\n"
+                                "• Team captain or manager must approve your request\n\n"
+                                "**Process:**\n"
+                                "1️⃣ Click the Register button\n"
+                                "2️⃣ Select the team you want to coach\n"
+                                "3️⃣ Wait for captain/manager approval\n"
+                                "4️⃣ Get notified once approved!"
+                            ),
+                            color=discord.Color.blue()
+                        )
+                        embed.set_footer(text="Coaches help guide their teams to victory!")
+                        
+                        view = CoachRegistrationView()
+                        await channel.send(embed=embed, view=view)
+                        
+                        self.ui_sent = True
+                        print(f"✅ Coach registration UI sent to channel {coach_channel_id}")
+                except Exception as e:
+                    print(f"❌ Error setting up coach registration UI: {e}")
+        
         print("✅ Coach Registration cog loaded")
     
     @app_commands.command(name="setup-coach-registration", description="[ADMIN] Setup coach registration UI in this channel")
