@@ -1070,9 +1070,9 @@ class Profiles(commands.Cog):
             is_manager = user_id in [staff.get('manager_1_id'), staff.get('manager_2_id')]
             
             if is_captain or is_manager:
-                # Add management buttons
+                # Add management buttons (ephemeral so only captain/manager can see them)
                 view = TeamManagementView(target_team, staff, is_captain, is_manager)
-                await interaction.followup.send(embed=embed, view=view)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
                 await interaction.followup.send(embed=embed)
 
