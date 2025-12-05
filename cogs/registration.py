@@ -527,11 +527,15 @@ class RegistrationView(discord.ui.View):
             confirm_view.add_item(cancel_button)
             
             await thread.send(embed=embed, view=confirm_view)
-            
-        except asyncio.TimeoutError:
-            await thread.send("Registration timed out. Thread will be deleted in 10 seconds.")
-            await asyncio.sleep(10)
-            await thread.delete()
+        
+        except Exception as e:
+            print(f"Error in screenshot registration: {e}")
+            try:
+                await thread.send(f"❌ An error occurred during registration: {e}")
+                await asyncio.sleep(10)
+                await thread.delete()
+            except:
+                pass
 
     @discord.ui.button(label="Manual Registration", style=discord.ButtonStyle.secondary, custom_id="reg_manual")
     async def manual_registration(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -647,20 +651,29 @@ class RegistrationView(discord.ui.View):
             
             # Get IGN
             await thread.send("What is your IGN?")
-            msg = await interaction.client.wait_for(
-                'message',
-                timeout=300,
-                check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+            
+            def check(m):
+                return m.author.id == interaction.user.id and m.channel.id == thread.id
+            
+            msg, timed_out = await wait_for_message_with_timeout(
+                interaction.client, check, thread, interaction.user
             )
+            
+            if timed_out or not msg:
+                return
+            
             registration_data['ign'] = msg.content
 
             # Get ID
             await thread.send("What is your In-game ID?")
-            msg = await interaction.client.wait_for(
-                'message',
-                timeout=300,
-                check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+            
+            msg, timed_out = await wait_for_message_with_timeout(
+                interaction.client, check, thread, interaction.user
             )
+            
+            if timed_out or not msg:
+                return
+            
             try:
                 registration_data['id'] = int(msg.content)
             except ValueError:
@@ -677,11 +690,13 @@ class RegistrationView(discord.ui.View):
             )
             
             while True:
-                msg = await interaction.client.wait_for(
-                    'message',
-                    timeout=300,
-                    check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+                msg, timed_out = await wait_for_message_with_timeout(
+                    interaction.client, check, thread, interaction.user
                 )
+                
+                if timed_out or not msg:
+                    return
+                
                 region = msg.content.lower()
                 if region in valid_regions:
                     registration_data['region'] = region
@@ -695,11 +710,13 @@ class RegistrationView(discord.ui.View):
                     await thread.send("Are you from India? (Reply: yes or no)")
                     
                     while True:
-                        msg = await interaction.client.wait_for(
-                            'message',
-                            timeout=300,
-                            check=lambda m: m.author.id == interaction.user.id and m.channel.id == thread.id
+                        msg, timed_out = await wait_for_message_with_timeout(
+                            interaction.client, check, thread, interaction.user
                         )
+                        
+                        if timed_out or not msg:
+                            return
+                        
                         response = msg.content.lower()
                         if response in ['yes', 'no']:
                             is_indian = (response == 'yes')
@@ -841,11 +858,15 @@ class RegistrationView(discord.ui.View):
             except Exception as e:
                 await thread.send(f"❌ Registration failed: {str(e)}")
                 asyncio.create_task(self.delete_thread_after_delay(thread, 12))
-
-        except asyncio.TimeoutError:
-            await thread.send("Registration timed out. Thread will be deleted in 10 seconds.")
-            await asyncio.sleep(10)
-            await thread.delete()
+        
+        except Exception as e:
+            print(f"Error in manual registration: {e}")
+            try:
+                await thread.send(f"❌ An error occurred during registration: {e}")
+                await asyncio.sleep(10)
+                await thread.delete()
+            except:
+                pass
 
     async def delete_thread_after_delay(self, thread, hours):
         """Delete thread after specified hours"""
