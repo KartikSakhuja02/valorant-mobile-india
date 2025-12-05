@@ -121,7 +121,6 @@ class RegistrationView(discord.ui.View):
             print(f"✓ Thread created: {thread.name} (ID: {thread.id})")
             
             # Add user to thread
-            # Add user to thread
             await thread.add_user(interaction.user)
             print(f"✓ Added {interaction.user.name} to thread")
             
@@ -130,42 +129,63 @@ class RegistrationView(discord.ui.View):
             staff_role_id = int(cfg('ROLE_STAFF_ID', 0)) if cfg('ROLE_STAFF_ID') else None
             mod_role_id = int(cfg('ROLE_MODERATOR_ID', 0)) if cfg('ROLE_MODERATOR_ID') else None
             
-            print(f"🔍 Looking for staff with role IDs: Admin={admin_role_id}, Staff={staff_role_id}, Mod={mod_role_id}")
+            print(f"\n{'='*60}")
+            print(f"🔍 THREAD STAFF DETECTION DEBUG [SCREENSHOT REGISTRATION]")
+            print(f"{'='*60}")
+            print(f"Looking for staff with role IDs:")
+            print(f"  Admin Role ID: {admin_role_id}")
+            print(f"  Staff Role ID: {staff_role_id}")
+            print(f"  Moderator Role ID: {mod_role_id}")
+            print(f"\nScanning {len(interaction.guild.members)} guild members...")
+            print(f"{'='*60}\n")
             
             staff_added = 0
+            members_checked = 0
+            
             for member in interaction.guild.members:
-                # Skip the user who created the thread (already added)
-                if member.id == interaction.user.id:
+                # Skip bots and the user who created the thread (already added)
+                if member.bot or member.id == interaction.user.id:
                     continue
-                    
+                
+                members_checked += 1
                 should_add = False
+                reasons = []
                 
                 # Check if member has admin permission
                 if member.guild_permissions.administrator:
                     should_add = True
-                    print(f"  👑 Found admin by permission: {member.name}")
+                    reasons.append("Admin Permission")
                 
                 # Check if member has any of the staff role IDs
-                for role in member.roles:
-                    if role.id == admin_role_id:
-                        should_add = True
-                        print(f"  👑 Found admin by role: {member.name}")
-                    elif role.id == staff_role_id:
-                        should_add = True
-                        print(f"  👮 Found staff: {member.name}")
-                    elif role.id == mod_role_id:
-                        should_add = True
-                        print(f"  👮 Found moderator: {member.name}")
+                member_role_ids = [role.id for role in member.roles]
+                
+                if admin_role_id and admin_role_id in member_role_ids:
+                    should_add = True
+                    reasons.append(f"Admin Role ({admin_role_id})")
+                
+                if staff_role_id and staff_role_id in member_role_ids:
+                    should_add = True
+                    reasons.append(f"Staff Role ({staff_role_id})")
+                
+                if mod_role_id and mod_role_id in member_role_ids:
+                    should_add = True
+                    reasons.append(f"Moderator Role ({mod_role_id})")
                 
                 if should_add:
+                    print(f"✓ {member.name} (ID: {member.id})")
+                    print(f"  Reasons: {', '.join(reasons)}")
+                    print(f"  Roles: {[f'{r.name}({r.id})' for r in member.roles if r.name != '@everyone'][:5]}")
+                    
                     try:
                         await thread.add_user(member)
                         staff_added += 1
-                        print(f"  ✅ Added {member.name} to thread")
+                        print(f"  ✅ Successfully added to thread\n")
                     except Exception as e:
-                        print(f"  ❌ Failed to add {member.name}: {e}")
+                        print(f"  ❌ Failed to add: {e}\n")
             
-            print(f"✓ Added {staff_added} staff members to thread")
+            print(f"{'='*60}")
+            print(f"📊 SUMMARY: Added {staff_added}/{members_checked} staff members to thread")
+            print(f"{'='*60}\n")
             
             await interaction.followup.send(f"Registration started in {thread.mention}", ephemeral=True)
             print(f"✅ Registration thread created successfully for {interaction.user.name}")
@@ -541,7 +561,6 @@ class RegistrationView(discord.ui.View):
             print(f"✓ Thread created: {thread.name} (ID: {thread.id})")
             
             # Add user to thread
-            # Add user to thread
             await thread.add_user(interaction.user)
             print(f"✓ Added {interaction.user.name} to thread")
             
@@ -550,42 +569,63 @@ class RegistrationView(discord.ui.View):
             staff_role_id = int(cfg('ROLE_STAFF_ID', 0)) if cfg('ROLE_STAFF_ID') else None
             mod_role_id = int(cfg('ROLE_MODERATOR_ID', 0)) if cfg('ROLE_MODERATOR_ID') else None
             
-            print(f"🔍 Looking for staff with role IDs: Admin={admin_role_id}, Staff={staff_role_id}, Mod={mod_role_id}")
+            print(f"\n{'='*60}")
+            print(f"🔍 THREAD STAFF DETECTION DEBUG [MANUAL REGISTRATION]")
+            print(f"{'='*60}")
+            print(f"Looking for staff with role IDs:")
+            print(f"  Admin Role ID: {admin_role_id}")
+            print(f"  Staff Role ID: {staff_role_id}")
+            print(f"  Moderator Role ID: {mod_role_id}")
+            print(f"\nScanning {len(interaction.guild.members)} guild members...")
+            print(f"{'='*60}\n")
             
             staff_added = 0
+            members_checked = 0
+            
             for member in interaction.guild.members:
-                # Skip the user who created the thread (already added)
-                if member.id == interaction.user.id:
+                # Skip bots and the user who created the thread (already added)
+                if member.bot or member.id == interaction.user.id:
                     continue
-                    
+                
+                members_checked += 1
                 should_add = False
+                reasons = []
                 
                 # Check if member has admin permission
                 if member.guild_permissions.administrator:
                     should_add = True
-                    print(f"  👑 Found admin by permission: {member.name}")
+                    reasons.append("Admin Permission")
                 
                 # Check if member has any of the staff role IDs
-                for role in member.roles:
-                    if role.id == admin_role_id:
-                        should_add = True
-                        print(f"  👑 Found admin by role: {member.name}")
-                    elif role.id == staff_role_id:
-                        should_add = True
-                        print(f"  👮 Found staff: {member.name}")
-                    elif role.id == mod_role_id:
-                        should_add = True
-                        print(f"  👮 Found moderator: {member.name}")
+                member_role_ids = [role.id for role in member.roles]
+                
+                if admin_role_id and admin_role_id in member_role_ids:
+                    should_add = True
+                    reasons.append(f"Admin Role ({admin_role_id})")
+                
+                if staff_role_id and staff_role_id in member_role_ids:
+                    should_add = True
+                    reasons.append(f"Staff Role ({staff_role_id})")
+                
+                if mod_role_id and mod_role_id in member_role_ids:
+                    should_add = True
+                    reasons.append(f"Moderator Role ({mod_role_id})")
                 
                 if should_add:
+                    print(f"✓ {member.name} (ID: {member.id})")
+                    print(f"  Reasons: {', '.join(reasons)}")
+                    print(f"  Roles: {[f'{r.name}({r.id})' for r in member.roles if r.name != '@everyone'][:5]}")
+                    
                     try:
                         await thread.add_user(member)
                         staff_added += 1
-                        print(f"  ✅ Added {member.name} to thread")
+                        print(f"  ✅ Successfully added to thread\n")
                     except Exception as e:
-                        print(f"  ❌ Failed to add {member.name}: {e}")
+                        print(f"  ❌ Failed to add: {e}\n")
             
-            print(f"✓ Added {staff_added} staff members to thread")
+            print(f"{'='*60}")
+            print(f"📊 SUMMARY: Added {staff_added}/{members_checked} staff members to thread")
+            print(f"{'='*60}\n")
 
             await interaction.followup.send(f"Registration started in {thread.mention}", ephemeral=True)
             print(f"✅ Registration thread created successfully for {interaction.user.name}")

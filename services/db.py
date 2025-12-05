@@ -94,6 +94,41 @@ async def update_player_ign(discord_id: int, new_ign: str) -> None:
             WHERE discord_id = $2
         """, new_ign, discord_id)
 
+async def update_player_id(discord_id: int, new_player_id: int) -> None:
+    """Update a player's in-game Player ID."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE players
+            SET player_id = $1
+            WHERE discord_id = $2
+        """, new_player_id, discord_id)
+
+async def update_player_region(discord_id: int, new_region: str) -> None:
+    """Update a player's region."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE players
+            SET region = $1
+            WHERE discord_id = $2
+        """, new_region, discord_id)
+
+async def update_player_india_status(discord_id: int, is_india: bool) -> None:
+    """Update a player's India status."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Check if column exists, if not this will be a no-op
+        try:
+            await conn.execute("""
+                UPDATE players
+                SET is_india = $1
+                WHERE discord_id = $2
+            """, is_india, discord_id)
+        except Exception:
+            # Column might not exist, ignore error
+            pass
+
 async def update_player_stats(discord_id: int, stats_update: Dict[str, int]):
     """Update player stats for the current tournament."""
     pool = await get_pool()

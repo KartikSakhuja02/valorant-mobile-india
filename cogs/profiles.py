@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from discord.ui import View, Button, Modal, TextInput
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 import os
@@ -10,6 +11,203 @@ import asyncio
 from io import BytesIO
 from datetime import datetime
 from services import db
+
+# Modal for editing IGN
+class EditIGNModal(Modal, title="Update IGN"):
+    new_ign = TextInput(
+        label="New In-Game Name",
+        placeholder="Enter your new IGN...",
+        required=True,
+        max_length=50
+    )
+    
+    def __init__(self, user: discord.Member):
+        super().__init__()
+        self.user = user
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            await db.update_player_ign(self.user.id, self.new_ign.value)
+            await interaction.followup.send(
+                f"✅ IGN updated to **{self.new_ign.value}**!\nRun `/profile` to see the changes.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error updating IGN: {e}", ephemeral=True)
+
+# Modal for editing Player ID
+class EditPlayerIDModal(Modal, title="Update Player ID"):
+    new_id = TextInput(
+        label="New Player ID",
+        placeholder="Enter your new Player ID...",
+        required=True,
+        max_length=20
+    )
+    
+    def __init__(self, user: discord.Member):
+        super().__init__()
+        self.user = user
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Validate that it's numeric
+            player_id = int(self.new_id.value)
+            await db.update_player_id(self.user.id, player_id)
+            await interaction.followup.send(
+                f"✅ Player ID updated to **{player_id}**!\nRun `/profile` to see the changes.",
+                ephemeral=True
+            )
+        except ValueError:
+            await interaction.followup.send("❌ Player ID must be a number!", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error updating Player ID: {e}", ephemeral=True)
+
+# View for region selection
+class RegionSelectView(View):
+    def __init__(self, user: discord.Member):
+        super().__init__(timeout=180)
+        self.user = user
+    
+    @discord.ui.button(label="NA", style=discord.ButtonStyle.primary, emoji="🌎")
+    async def na_button(self, interaction: discord.Interaction, button: Button):
+        await self.update_region(interaction, "NA")
+    
+    @discord.ui.button(label="EU", style=discord.ButtonStyle.primary, emoji="🌍")
+    async def eu_button(self, interaction: discord.Interaction, button: Button):
+        await self.update_region(interaction, "EU")
+    
+    @discord.ui.button(label="AP", style=discord.ButtonStyle.primary, emoji="🌏")
+    async def ap_button(self, interaction: discord.Interaction, button: Button):
+        await self.update_region(interaction, "AP")
+    
+    @discord.ui.button(label="KR", style=discord.ButtonStyle.primary, emoji="🇰🇷")
+    async def kr_button(self, interaction: discord.Interaction, button: Button):
+        await self.update_region(interaction, "KR")
+    
+    @discord.ui.button(label="BR", style=discord.ButtonStyle.primary, emoji="🇧🇷")
+    async def br_button(self, interaction: discord.Interaction, button: Button):
+        await self.update_region(interaction, "BR")
+    
+    @discord.ui.button(label="LATAM", style=discord.ButtonStyle.primary, emoji="🌎")
+    async def latam_button(self, interaction: discord.Interaction, button: Button):
+        await self.update_region(interaction, "LATAM")
+    
+    @discord.ui.button(label="JP", style=discord.ButtonStyle.primary, emoji="🇯🇵")
+    async def jp_button(self, interaction: discord.Interaction, button: Button):
+        await self.update_region(interaction, "JP")
+    
+    async def update_region(self, interaction: discord.Interaction, region: str):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            await db.update_player_region(self.user.id, region)
+            await interaction.followup.send(
+                f"✅ Region updated to **{region}**!\nRun `/profile` to see the changes.",
+                ephemeral=True
+            )
+            # Disable all buttons
+            for item in self.children:
+                item.disabled = True
+            await interaction.message.edit(view=self)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error updating region: {e}", ephemeral=True)
+
+# View for India role toggle
+class IndiaToggleView(View):
+    def __init__(self, user: discord.Member, current_status: bool):
+        super().__init__(timeout=180)
+        self.user = user
+        self.current_status = current_status
+    
+    @discord.ui.button(label="✅ Yes, I'm from India", style=discord.ButtonStyle.green)
+    async def yes_button(self, interaction: discord.Interaction, button: Button):
+        await self.toggle_india(interaction, True)
+    
+    @discord.ui.button(label="❌ No, I'm not from India", style=discord.ButtonStyle.red)
+    async def no_button(self, interaction: discord.Interaction, button: Button):
+        await self.toggle_india(interaction, False)
+    
+    async def toggle_india(self, interaction: discord.Interaction, is_india: bool):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            await db.update_player_india_status(self.user.id, is_india)
+            status_text = "from India" if is_india else "not from India"
+            await interaction.followup.send(
+                f"✅ India status updated! You are now marked as **{status_text}**.",
+                ephemeral=True
+            )
+            # Disable all buttons
+            for item in self.children:
+                item.disabled = True
+            await interaction.message.edit(view=self)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error updating India status: {e}", ephemeral=True)
+
+# Main profile edit view
+class ProfileEditView(View):
+    def __init__(self, player_data: dict, user: discord.Member):
+        super().__init__(timeout=300)
+        self.player_data = player_data
+        self.user = user
+    
+    @discord.ui.button(label="Edit IGN", style=discord.ButtonStyle.primary, emoji="✏️")
+    async def edit_ign_button(self, interaction: discord.Interaction, button: Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+            return
+        
+        modal = EditIGNModal(self.user)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Edit Player ID", style=discord.ButtonStyle.primary, emoji="🆔")
+    async def edit_id_button(self, interaction: discord.Interaction, button: Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+            return
+        
+        modal = EditPlayerIDModal(self.user)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Change Region", style=discord.ButtonStyle.primary, emoji="🌍")
+    async def change_region_button(self, interaction: discord.Interaction, button: Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+            return
+        
+        view = RegionSelectView(self.user)
+        await interaction.response.send_message(
+            "🌍 **Select your new region:**",
+            view=view,
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="India Status", style=discord.ButtonStyle.primary, emoji="🇮🇳")
+    async def india_status_button(self, interaction: discord.Interaction, button: Button):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+            return
+        
+        current_status = self.player_data.get('is_india', False)
+        view = IndiaToggleView(self.user, current_status)
+        current_text = "from India" if current_status else "not from India"
+        await interaction.response.send_message(
+            f"🇮🇳 **Update India Status**\n\nYou are currently marked as **{current_text}**.\nSelect your correct status:",
+            view=view,
+            ephemeral=True
+        )
 
 class Profiles(commands.Cog):
     def __init__(self, bot):
@@ -406,7 +604,7 @@ class Profiles(commands.Cog):
         if not stats:
             stats = {}  # Use empty dict if no stats found
         
-        # Build a Discord embed with profile fields instead of sending an image
+        # Build a Discord embed with profile fields
         try:
             # Calculate derived stats
             kdr = self.calculate_kdr(stats.get('kills', 0), stats.get('deaths', 0))
@@ -428,16 +626,21 @@ class Profiles(commands.Cog):
 
             # Add core fields
             profile_embed.add_field(name="IGN", value=player_data.get('ign', 'Unknown'), inline=True)
+            profile_embed.add_field(name="Player ID", value=player_data.get('player_id', 'Unknown'), inline=True)
+            profile_embed.add_field(name="Region", value=player_data.get('region', 'Unknown'), inline=True)
             profile_embed.add_field(name="Points", value=str(points), inline=True)
             profile_embed.add_field(name="K/D", value=f"{kdr:.2f}", inline=True)
             profile_embed.add_field(name="Win Rate", value=f"{winrate:.1f}%", inline=True)
             profile_embed.add_field(name="Kills / Deaths", value=f"{stats.get('kills',0)} / {stats.get('deaths',0)}", inline=True)
             profile_embed.add_field(name="Matches Played", value=str(stats.get('matches_played', 0)), inline=True)
             profile_embed.add_field(name="MVPs", value=str(stats.get('mvps', 0)), inline=True)
-            profile_embed.add_field(name="Discord ID", value=str(target_user.id), inline=True)
 
-            # Footer and timestamp already set; send embed
-            await interaction.followup.send(embed=profile_embed)
+            # Show edit buttons only if viewing your own profile
+            if target_user.id == interaction.user.id:
+                view = ProfileEditView(player_data, interaction.user)
+                await interaction.followup.send(embed=profile_embed, view=view)
+            else:
+                await interaction.followup.send(embed=profile_embed)
 
         except Exception as e:
             await interaction.followup.send(f"❌ Error building profile: {e}", ephemeral=True)
