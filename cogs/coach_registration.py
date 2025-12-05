@@ -29,7 +29,7 @@ class CoachRegistrationView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="🎓 Register as Coach", style=discord.ButtonStyle.primary, custom_id="register_coach_button")
+    @discord.ui.button(label="Register as Coach", style=discord.ButtonStyle.primary, custom_id="register_coach_button")
     async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle coach registration button click"""
         # Create private thread for registration
@@ -40,7 +40,7 @@ class CoachRegistrationView(discord.ui.View):
         )
         
         await interaction.response.send_message(
-            f"✅ Created private thread: {thread.mention}\n"
+            f"Created private thread: {thread.mention}\n"
             f"Please complete your registration there.",
             ephemeral=True
         )
@@ -54,7 +54,7 @@ class CoachRegistrationView(discord.ui.View):
         if not teams:
             await thread.send(
                 f"{interaction.user.mention}\n\n"
-                "❌ **No teams found!**\n"
+                "**No teams found**\n"
                 "There are no registered teams available. Please try again later."
             )
             return
@@ -64,7 +64,7 @@ class CoachRegistrationView(discord.ui.View):
         
         await thread.send(
             f"{interaction.user.mention}\n\n"
-            f"🎓 **Coach Registration**\n\n"
+            f"**Coach Registration**\n\n"
             f"Please select the team you want to coach from the dropdown below.\n"
             f"The team captain or manager will need to approve your request.",
             view=team_select
@@ -103,7 +103,7 @@ class TeamSelectView(discord.ui.View):
     async def team_selected(self, interaction: discord.Interaction):
         """Handle team selection"""
         if interaction.user.id != self.user.id:
-            await interaction.response.send_message("❌ This is not your registration!", ephemeral=True)
+            await interaction.response.send_message("This is not your registration.", ephemeral=True)
             return
         
         team_id = int(self.team_dropdown.values[0])
@@ -112,14 +112,14 @@ class TeamSelectView(discord.ui.View):
         team = await db.get_team_by_id(team_id)
         
         if not team:
-            await interaction.response.send_message("❌ Team not found!", ephemeral=True)
+            await interaction.response.send_message("Team not found.", ephemeral=True)
             return
         
         # Check if team already has a coach
         staff = await db.get_team_staff(team_id)
         if staff and staff.get('coach_id'):
             await interaction.response.send_message(
-                f"❌ **{team['name']}** already has a coach!\n"
+                f"**{team['name']}** already has a coach.\n"
                 f"Teams can only have one coach at a time.",
                 ephemeral=True
             )
@@ -139,7 +139,7 @@ class TeamSelectView(discord.ui.View):
         player_ign = player.get('ign', 'Unknown') if player else 'Unknown'
         
         await self.thread.send(
-            f"⏳ **Waiting for approval...**\n\n"
+            f"**Waiting for approval**\n\n"
             f"A request has been sent to the captain and managers of **{team['name']}**.\n"
             f"They need to approve before you can join as coach."
         )
@@ -158,7 +158,7 @@ class TeamSelectView(discord.ui.View):
             captain_dm = await captain.create_dm()
             
             approval_embed = discord.Embed(
-                title="🎓 Coach Registration Request",
+                title="Coach Registration Request",
                 description=f"{self.user.mention} wants to be the coach for your team!",
                 color=discord.Color.blue()
             )
@@ -178,7 +178,7 @@ class TeamSelectView(discord.ui.View):
                     manager_dm = await manager.create_dm()
                     
                     approval_embed = discord.Embed(
-                        title="🎓 Coach Registration Request",
+                        title="Coach Registration Request",
                         description=f"{self.user.mention} wants to be the coach for your team!",
                         color=discord.Color.blue()
                     )
@@ -193,7 +193,7 @@ class TeamSelectView(discord.ui.View):
     async def on_timeout(self):
         """Handle timeout"""
         try:
-            await self.thread.send("⏰ Registration timed out. Please try again.")
+            await self.thread.send("Registration timed out. Please try again.")
         except:
             pass
 
@@ -209,7 +209,7 @@ class CoachApprovalView(discord.ui.View):
         self.thread = thread
         self.approved = False
     
-    @discord.ui.button(label="✅ Accept", style=discord.ButtonStyle.success, custom_id="approve_coach")
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, custom_id="approve_coach")
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Accept the coach request"""
         # Check if user is captain or manager
@@ -218,11 +218,11 @@ class CoachApprovalView(discord.ui.View):
         is_manager = interaction.user.id in [staff.get('manager_1_id'), staff.get('manager_2_id')] if staff else False
         
         if not (is_captain or is_manager):
-            await interaction.response.send_message("❌ Only the captain or managers can approve!", ephemeral=True)
+            await interaction.response.send_message("Only the captain or managers can approve.", ephemeral=True)
             return
         
         if self.approved:
-            await interaction.response.send_message("✅ This request has already been processed.", ephemeral=True)
+            await interaction.response.send_message("This request has already been processed.", ephemeral=True)
             return
         
         self.approved = True
@@ -237,14 +237,14 @@ class CoachApprovalView(discord.ui.View):
         
         # Notify in DM
         await interaction.followup.send(
-            f"✅ You've accepted **{self.coach_user.mention}** as coach for **{self.team['name']}**!",
+            f"You've accepted **{self.coach_user.mention}** as coach for **{self.team['name']}**.",
             ephemeral=True
         )
         
         # Notify in thread
         await self.thread.send(
-            f"✅ **Coach Registration Approved!**\n\n"
-            f"{self.coach_user.mention}, you are now the coach of **{self.team['name']}** [{self.team['tag']}]!\n"
+            f"**Coach Registration Approved**\n\n"
+            f"{self.coach_user.mention}, you are now the coach of **{self.team['name']}** [{self.team['tag']}].\n"
             f"Approved by: {interaction.user.mention}"
         )
         
@@ -255,7 +255,7 @@ class CoachApprovalView(discord.ui.View):
                 log_channel = interaction.client.get_channel(int(log_channel_id))
                 if log_channel:
                     log_embed = discord.Embed(
-                        title="🎓 Coach Registered",
+                        title="Coach Registered",
                         color=discord.Color.blue(),
                         timestamp=discord.utils.utcnow()
                     )
@@ -274,7 +274,7 @@ class CoachApprovalView(discord.ui.View):
         except:
             pass
     
-    @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.danger, custom_id="decline_coach")
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, custom_id="decline_coach")
     async def decline_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Decline the coach request"""
         # Check if user is captain or manager
@@ -283,11 +283,11 @@ class CoachApprovalView(discord.ui.View):
         is_manager = interaction.user.id in [staff.get('manager_1_id'), staff.get('manager_2_id')] if staff else False
         
         if not (is_captain or is_manager):
-            await interaction.response.send_message("❌ Only the captain or managers can decline!", ephemeral=True)
+            await interaction.response.send_message("Only the captain or managers can decline.", ephemeral=True)
             return
         
         if self.approved:
-            await interaction.response.send_message("✅ This request has already been processed.", ephemeral=True)
+            await interaction.response.send_message("This request has already been processed.", ephemeral=True)
             return
         
         self.approved = True
@@ -299,13 +299,13 @@ class CoachApprovalView(discord.ui.View):
         
         # Notify in DM
         await interaction.followup.send(
-            f"❌ You've declined **{self.coach_user.mention}** as coach for **{self.team['name']}**.",
+            f"You've declined **{self.coach_user.mention}** as coach for **{self.team['name']}**.",
             ephemeral=True
         )
         
         # Notify in thread
         await self.thread.send(
-            f"❌ **Coach Registration Declined**\n\n"
+            f"**Coach Registration Declined**\n\n"
             f"{self.coach_user.mention}, your request to coach **{self.team['name']}** was declined by {interaction.user.mention}."
         )
         
@@ -341,17 +341,17 @@ class CoachRegistration(commands.Cog):
                         
                         # Send the registration UI
                         embed = discord.Embed(
-                            title="🎓 Coach Registration",
+                            title="Coach Registration",
                             description=(
-                                "Want to become a coach for a team? Click the button below to get started!\n\n"
+                                "Want to become a coach for a team? Click the button below to get started.\n\n"
                                 "**Requirements:**\n"
                                 "• The team must not already have a coach\n"
                                 "• Team captain or manager must approve your request\n\n"
                                 "**Process:**\n"
-                                "1️⃣ Click the Register button\n"
-                                "2️⃣ Select the team you want to coach\n"
-                                "3️⃣ Wait for captain/manager approval\n"
-                                "4️⃣ Get notified once approved!"
+                                "1. Click the Register button\n"
+                                "2. Select the team you want to coach\n"
+                                "3. Wait for captain/manager approval\n"
+                                "4. Get notified once approved"
                             ),
                             color=discord.Color.blue()
                         )
@@ -361,11 +361,11 @@ class CoachRegistration(commands.Cog):
                         await channel.send(embed=embed, view=view)
                         
                         self.ui_sent = True
-                        print(f"✅ Coach registration UI sent to channel {coach_channel_id}")
+                        print(f"Coach registration UI sent to channel {coach_channel_id}")
                 except Exception as e:
-                    print(f"❌ Error setting up coach registration UI: {e}")
+                    print(f"Error setting up coach registration UI: {e}")
         
-        print("✅ Coach Registration cog loaded")
+        print("Coach Registration cog loaded")
     
     @app_commands.command(name="setup-coach-registration", description="[ADMIN] Setup coach registration UI in this channel")
     @app_commands.checks.has_permissions(administrator=True)
@@ -373,17 +373,17 @@ class CoachRegistration(commands.Cog):
         """Setup the coach registration message with button"""
         
         embed = discord.Embed(
-            title="🎓 Coach Registration",
+            title="Coach Registration",
             description=(
-                "Want to become a coach for a team? Click the button below to get started!\n\n"
+                "Want to become a coach for a team? Click the button below to get started.\n\n"
                 "**Requirements:**\n"
                 "• The team must not already have a coach\n"
                 "• Team captain or manager must approve your request\n\n"
                 "**Process:**\n"
-                "1️⃣ Click the Register button\n"
-                "2️⃣ Select the team you want to coach\n"
-                "3️⃣ Wait for captain/manager approval\n"
-                "4️⃣ Get notified once approved!"
+                "1. Click the Register button\n"
+                "2. Select the team you want to coach\n"
+                "3. Wait for captain/manager approval\n"
+                "4. Get notified once approved"
             ),
             color=discord.Color.blue()
         )
@@ -392,7 +392,7 @@ class CoachRegistration(commands.Cog):
         view = CoachRegistrationView()
         
         await interaction.response.send_message(
-            "✅ Coach registration UI has been set up!",
+            "Coach registration UI has been set up.",
             ephemeral=True
         )
         
