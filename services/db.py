@@ -598,8 +598,8 @@ async def add_team_member(team_id: int, player_id: int) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("""
-            INSERT INTO team_members (team_id, player_id)
-            VALUES ($1, $2)
+            INSERT INTO team_members (team_id, player_id, discord_id)
+            VALUES ($1, $2, $2)
             ON CONFLICT (team_id, player_id) DO NOTHING
         """, team_id, player_id)
 
