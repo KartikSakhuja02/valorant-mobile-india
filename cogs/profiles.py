@@ -128,28 +128,29 @@ class RegionSelectView(View):
                 except Exception as e:
                     print(f"Error adding new role: {e}")
             
-            # If changing FROM AP to another region, remove India role
-            if old_region.upper() in ['AP', 'APAC'] and region not in ['AP', 'APAC']:
+            # If changing FROM APAC to another region, remove India role and status
+            if old_region.upper() in ['AP', 'APAC', 'KR', 'JP'] and region not in ['AP', 'KR', 'JP']:
                 india_role_id = cfg('INDIA_ROLE_ID')
                 if india_role_id:
                     try:
                         india_role = self.guild.get_role(int(india_role_id))
                         if india_role and india_role in member.roles:
                             await member.remove_roles(india_role)
-                            await interaction.followup.send(
-                                f"✅ Region updated to **{region}**!\n"
-                                f"📍 Removed APAC region role\n"
-                                f"🇮🇳 Removed India role (no longer in APAC)"
-                            )
-                            # Disable buttons
-                            for item in self.children:
-                                item.disabled = True
-                            await interaction.message.edit(view=self)
-                            return
+                            await db.update_player_india_status(self.user.id, False)
+                            print(f"Removed India role (left APAC region)")
                     except Exception as e:
                         print(f"Error removing India role: {e}")
             
-            await interaction.followup.send(f"✅ Region updated to **{region}**!")
+            # If changing TO APAC, prompt for India status
+            if region in ['AP', 'KR', 'JP'] and old_region.upper() not in ['AP', 'APAC', 'KR', 'JP']:
+                india_view = IndiaToggleView(self.user, self.guild, False)
+                await interaction.followup.send(
+                    f"✅ Region updated to **{region}** and roles updated!\n\n"
+                    "🇮🇳 **Are you from India?** Please select below:",
+                    view=india_view
+                )
+            else:
+                await interaction.followup.send(f"✅ Region updated to **{region}** and roles updated!")
             
             # Disable buttons
             for item in self.children:
@@ -221,6 +222,12 @@ class ProfileEditView(View):
         self.user = user
         self.bot = bot
         self.guild = guild
+        
+        # Hide India status button if not APAC region
+        player_region = player_data.get('region', '').upper()
+        if player_region not in ['AP', 'APAC', 'KR', 'JP']:
+            # Remove the India Status button
+            self.remove_item(self.india_status_button)
     
     @discord.ui.button(label="Edit IGN", style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_ign_button(self, interaction: discord.Interaction, button: Button):
@@ -807,6 +814,13 @@ class Profiles(commands.Cog):
             profile_embed.add_field(name="Kills / Deaths", value=f"{stats.get('kills',0)} / {stats.get('deaths',0)}", inline=True)
             profile_embed.add_field(name="Matches Played", value=str(stats.get('matches_played', 0)), inline=True)
             profile_embed.add_field(name="MVPs", value=str(stats.get('mvps', 0)), inline=True)
+            
+            # Show India status only for APAC regions
+            player_region = player_data.get('region', '').upper()
+            if player_region in ['AP', 'APAC', 'KR', 'JP']:
+                is_india = player_data.get('is_india', False)
+                india_status = "🇮🇳 Yes" if is_india else "❌ No"
+                profile_embed.add_field(name="From India?", value=india_status, inline=True)
 
             # Show edit buttons only if viewing your own profile
             if target_user.id == interaction.user.id:
