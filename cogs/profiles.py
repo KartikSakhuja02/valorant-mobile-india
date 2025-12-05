@@ -1095,12 +1095,33 @@ class TeamManagementView(discord.ui.View):
         self.staff_data = staff_data
         self.is_captain = is_captain
         self.is_manager = is_manager
+        self.authorized_user_id = None  # Will be set on first interaction
         
         # Disable captain-only buttons for managers
         if not is_captain:
             for item in self.children:
                 if hasattr(item, 'custom_id') and item.custom_id in ['transfer_captain', 'add_coach', 'remove_coach', 'add_manager', 'remove_manager']:
                     item.disabled = True
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Check if the user is authorized to use these buttons."""
+        # Set authorized user on first interaction
+        if self.authorized_user_id is None:
+            self.authorized_user_id = interaction.user.id
+        
+        # Check if this is the authorized user (captain or manager)
+        user_id = interaction.user.id
+        is_captain = user_id == self.team_data['captain_id']
+        is_manager = user_id in [self.staff_data.get('manager_1_id'), self.staff_data.get('manager_2_id')]
+        
+        if not (is_captain or is_manager):
+            await interaction.response.send_message(
+                "❌ Only the team captain or managers can use these controls!",
+                ephemeral=True
+            )
+            return False
+        
+        return True
     
     @discord.ui.button(label="✏️ Edit Team", style=discord.ButtonStyle.primary, custom_id="edit_team", row=0)
     async def edit_team_button(self, interaction: discord.Interaction, button: discord.ui.Button):
