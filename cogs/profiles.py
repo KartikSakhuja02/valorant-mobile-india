@@ -1334,6 +1334,25 @@ class TeamManagementView(discord.ui.View):
                         except:
                             pass
                         
+                        # Log to admin logs
+                        log_channel_id = cfg("log_channel_id")
+                        if log_channel_id:
+                            try:
+                                log_channel = interaction.client.get_channel(int(log_channel_id))
+                                if log_channel:
+                                    log_embed = discord.Embed(
+                                        title="👥 Player Joined Team",
+                                        color=discord.Color.green(),
+                                        timestamp=discord.utils.utcnow()
+                                    )
+                                    log_embed.add_field(name="Player", value=f"{user.mention} ({player['ign']})", inline=False)
+                                    log_embed.add_field(name="Team", value=f"{self.team_data['name']} [{self.team_data['tag']}]", inline=False)
+                                    log_embed.add_field(name="Invited by", value=f"{interaction.user.mention}", inline=False)
+                                    log_embed.set_footer(text=f"Player ID: {user.id} | Team ID: {self.team_data['id']}")
+                                    await log_channel.send(embed=log_embed)
+                            except:
+                                pass
+                        
                         # Disable buttons
                         for item in invite_view.children:
                             item.disabled = True
@@ -1460,8 +1479,46 @@ class TeamManagementView(discord.ui.View):
                 await interaction.followup.send("❌ Cannot remove the team captain. Transfer captainship first.", ephemeral=True)
                 return
             
+            # Get player info before removal
+            player = await db.get_player(target_user.id)
+            player_ign = player.get('ign', 'Unknown') if player else 'Unknown'
+            
             # Remove player from team
             await db.remove_player_from_team(self.team_data['id'], target_user.id)
+            
+            # Send DM to removed player
+            try:
+                dm_channel = await target_user.create_dm()
+                removal_embed = discord.Embed(
+                    title="❌ Removed from Team",
+                    description=f"You have been removed from **{self.team_data['name']}** [{self.team_data['tag']}]",
+                    color=discord.Color.red()
+                )
+                removal_embed.add_field(name="Removed by", value=interaction.user.mention, inline=False)
+                removal_embed.set_footer(text="Contact the team captain if you have questions")
+                await dm_channel.send(embed=removal_embed)
+            except discord.Forbidden:
+                # Player has DMs disabled, skip DM
+                pass
+            
+            # Log to admin logs
+            log_channel_id = cfg("log_channel_id")
+            if log_channel_id:
+                try:
+                    log_channel = interaction.client.get_channel(int(log_channel_id))
+                    if log_channel:
+                        log_embed = discord.Embed(
+                            title="👥 Player Removed from Team",
+                            color=discord.Color.orange(),
+                            timestamp=discord.utils.utcnow()
+                        )
+                        log_embed.add_field(name="Player", value=f"{target_user.mention} ({player_ign})", inline=False)
+                        log_embed.add_field(name="Team", value=f"{self.team_data['name']} [{self.team_data['tag']}]", inline=False)
+                        log_embed.add_field(name="Removed by", value=f"{interaction.user.mention}", inline=False)
+                        log_embed.set_footer(text=f"Player ID: {target_user.id} | Team ID: {self.team_data['id']}")
+                        await log_channel.send(embed=log_embed)
+                except:
+                    pass
             
             await interaction.followup.send(f"✅ Successfully removed {target_user.mention} from the team!", ephemeral=True)
             
