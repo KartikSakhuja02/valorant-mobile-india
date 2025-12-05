@@ -1069,6 +1069,10 @@ class Profiles(commands.Cog):
             is_captain = user_id == target_team['captain_id']
             is_manager = user_id in [staff.get('manager_1_id'), staff.get('manager_2_id')]
             
+            # Debug logging
+            print(f"DEBUG: User {user_id}, Captain: {target_team['captain_id']}, is_captain: {is_captain}")
+            print(f"DEBUG: Manager 1: {staff.get('manager_1_id')}, Manager 2: {staff.get('manager_2_id')}, is_manager: {is_manager}")
+            
             if is_captain or is_manager:
                 # Add management buttons (ephemeral so only captain/manager can see them)
                 view = TeamManagementView(target_team, staff, is_captain, is_manager)
