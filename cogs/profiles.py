@@ -895,30 +895,52 @@ class Profiles(commands.Cog):
             await interaction.followup.send(f"❌ Error building profile: {e}", ephemeral=True)
 
     @app_commands.command(name="team-profile", description="Displays a team's profile")
-    @app_commands.describe(name="The name or tag of the team to look up")
-    async def team_profile(self, interaction: discord.Interaction, name: str):
+    @app_commands.describe(name="The name or tag of the team to look up (optional, defaults to your team)")
+    async def team_profile(self, interaction: discord.Interaction, name: str = None):
         """Displays a team's profile with Discord UI."""
         try:
             await interaction.response.defer()
             
-            # Try to get team by name first
-            target_team = await db.get_team_by_name(name)
+            target_team = None
             
-            # If not found by name, try searching all teams by tag
-            if not target_team:
-                all_teams = await db.get_all_teams()
-                team_id_match = None
-                for team in all_teams:
-                    if team.get('tag', '').lower() == name.lower():
-                        team_id_match = team['id']
-                        break
+            # If no name provided, try to get user's team
+            if not name:
+                # Check if user is a captain
+                target_team = await db.get_team_by_captain(interaction.user.id)
                 
-                # If found by tag, get the full team data with members
-                if team_id_match:
-                    target_team = await db.get_team_by_id(team_id_match)
+                # If not captain, check if user is a member
+                if not target_team:
+                    target_team = await db.get_player_team(interaction.user.id)
+                
+                if not target_team:
+                    await interaction.followup.send(
+                        "❌ You are not part of any team!\n"
+                        "To view another team's profile, use `/team-profile [team name]`",
+                        ephemeral=True
+                    )
+                    return
+            else:
+                # Try to get team by name first
+                target_team = await db.get_team_by_name(name)
+                
+                # If not found by name, try searching all teams by tag
+                if not target_team:
+                    all_teams = await db.get_all_teams()
+                    team_id_match = None
+                    for team in all_teams:
+                        if team.get('tag', '').lower() == name.lower():
+                            team_id_match = team['id']
+                            break
+                    
+                    # If found by tag, get the full team data with members
+                    if team_id_match:
+                        target_team = await db.get_team_by_id(team_id_match)
             
             if not target_team:
-                await interaction.followup.send(f"❌ Team `{name}` not found. Try using the full team name or tag.", ephemeral=True)
+                if name:
+                    await interaction.followup.send(f"❌ Team `{name}` not found. Try using the full team name or tag.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ Could not find team.", ephemeral=True)
                 return
 
             # Get captain info
