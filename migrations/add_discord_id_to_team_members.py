@@ -17,13 +17,26 @@ async def migrate():
     """Add discord_id column to team_members table if it doesn't exist."""
     
     # Get database connection details
-    db_host = os.getenv('DB_HOST', 'localhost')
-    db_port = os.getenv('DB_PORT', '5432')
-    db_name = os.getenv('DB_NAME', 'valorant_tournament')
-    db_user = os.getenv('DB_USER', 'postgres')
-    db_password = os.getenv('DB_PASSWORD', '')
+    # Support both individual env vars and DATABASE_URL format
+    database_url = os.getenv('DATABASE_URL')
     
-    print(f"Connecting to database: {db_name} at {db_host}:{db_port}")
+    if database_url:
+        # Parse DATABASE_URL format: postgresql://user:password@host:port/dbname
+        import re
+        match = re.match(r'(?:postgresql://)?([^:]+):([^@]+)@([^:]+):(\d+)/(.+)', database_url)
+        if match:
+            db_user, db_password, db_host, db_port, db_name = match.groups()
+        else:
+            print("❌ Invalid DATABASE_URL format")
+            return False
+    else:
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_port = os.getenv('DB_PORT', '5432')
+        db_name = os.getenv('DB_NAME', 'valm')
+        db_user = os.getenv('DB_USER', 'valm_user')
+        db_password = os.getenv('DB_PASSWORD', 'kartik123')
+    
+    print(f"Connecting to database: {db_name} at {db_host}:{db_port} as {db_user}")
     
     try:
         # Connect to database
