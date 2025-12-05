@@ -1976,17 +1976,123 @@ class PlayerManagementView(discord.ui.View):
                 )
                 return
             
-            # Add player to team
-            await db.add_team_member(self.team_data['id'], user.id)
-            
-            # Update player's team in leaderboard
-            await db.update_player_team(user.id, self.team_data['id'])
-            
-            await interaction.followup.send(
-                f"✅ {user.mention} has been added to the team!\n"
-                f"They are now part of **{self.team_data['name']}** [{self.team_data['tag']}]",
-                ephemeral=True
-            )
+            # Send invite to player via DM
+            try:
+                dm_channel = await user.create_dm()
+                
+                invite_view = discord.ui.View(timeout=300)
+                
+                accept_button = discord.ui.Button(
+                    label="✅ Accept Invite",
+                    style=discord.ButtonStyle.success,
+                    custom_id="accept_invite"
+                )
+                
+                decline_button = discord.ui.Button(
+                    label="❌ Decline Invite",
+                    style=discord.ButtonStyle.danger,
+                    custom_id="decline_invite"
+                )
+                
+                async def accept_callback(button_interaction: discord.Interaction):
+                    if button_interaction.user.id != user.id:
+                        await button_interaction.response.send_message("❌ This invite is not for you!", ephemeral=True)
+                        return
+                    
+                    await button_interaction.response.defer()
+                    
+                    # Add player to team
+                    try:
+                        await db.add_team_member(self.team_data['id'], user.id)
+                        
+                        # Update player's team in leaderboard
+                        await db.update_player_team(user.id, self.team_data['id'])
+                        
+                        await button_interaction.followup.send(
+                            f"✅ **You've joined {self.team_data['name']}!**\n"
+                            f"Team Tag: [{self.team_data['tag']}]\n"
+                            f"Captain: <@{self.team_data['captain_id']}>\n\n"
+                            f"Use `/team-profile` to view your team!"
+                        )
+                        
+                        # Notify the captain
+                        try:
+                            captain = await interaction.client.fetch_user(self.team_data['captain_id'])
+                            captain_dm = await captain.create_dm()
+                            await captain_dm.send(
+                                f"✅ **{user.mention} ({player['ign']}) has accepted your invite!**\n"
+                                f"They are now part of **{self.team_data['name']}**."
+                            )
+                        except:
+                            pass
+                        
+                        # Disable buttons
+                        for item in invite_view.children:
+                            item.disabled = True
+                        await button_interaction.message.edit(view=invite_view)
+                        
+                    except Exception as e:
+                        await button_interaction.followup.send(f"❌ Error joining team: {e}")
+                
+                async def decline_callback(button_interaction: discord.Interaction):
+                    if button_interaction.user.id != user.id:
+                        await button_interaction.response.send_message("❌ This invite is not for you!", ephemeral=True)
+                        return
+                    
+                    await button_interaction.response.defer()
+                    
+                    await button_interaction.followup.send(
+                        f"❌ You've declined the invite to **{self.team_data['name']}**."
+                    )
+                    
+                    # Notify the captain
+                    try:
+                        captain = await interaction.client.fetch_user(self.team_data['captain_id'])
+                        captain_dm = await captain.create_dm()
+                        await captain_dm.send(
+                            f"❌ **{user.mention} ({player['ign']}) has declined your invite.**\n"
+                            f"Team: **{self.team_data['name']}**"
+                        )
+                    except:
+                        pass
+                    
+                    # Disable buttons
+                    for item in invite_view.children:
+                        item.disabled = True
+                    await button_interaction.message.edit(view=invite_view)
+                
+                accept_button.callback = accept_callback
+                decline_button.callback = decline_callback
+                
+                invite_view.add_item(accept_button)
+                invite_view.add_item(decline_button)
+                
+                invite_embed = discord.Embed(
+                    title="🎮 Team Invite",
+                    description=f"**{interaction.user.display_name}** has invited you to join their team!",
+                    color=discord.Color.blue()
+                )
+                invite_embed.add_field(name="Team Name", value=self.team_data['name'], inline=True)
+                invite_embed.add_field(name="Team Tag", value=f"[{self.team_data['tag']}]", inline=True)
+                invite_embed.add_field(name="Region", value=self.team_data['region'].upper(), inline=True)
+                invite_embed.add_field(name="Captain", value=f"<@{self.team_data['captain_id']}>", inline=False)
+                invite_embed.set_footer(text="This invite expires in 5 minutes")
+                
+                await dm_channel.send(embed=invite_embed, view=invite_view)
+                
+                await interaction.followup.send(
+                    f"✅ Invite sent to {user.mention}!\n"
+                    f"They will receive a DM to accept or decline.",
+                    ephemeral=True
+                )
+                
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    f"❌ Could not send DM to {user.mention}. They may have DMs disabled.\n"
+                    f"Ask them to enable DMs from server members and try again.",
+                    ephemeral=True
+                )
+                return
             
             try:
                 await msg.delete()
