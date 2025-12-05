@@ -1579,7 +1579,11 @@ class TeamManagementView(discord.ui.View):
             is_member = any(m.get('discord_id') == new_captain.id for m in members_data if isinstance(m, dict))
             
             if not is_member:
-                await interaction.followup.send(f"❌ {new_captain.mention} is not on this team.", ephemeral=True)
+                await interaction.followup.send(
+                    f"❌ **{new_captain.mention} is not in your team!**\n"
+                    f"You can only transfer captainship to players who are already on **{self.team_data['name']}**.",
+                    ephemeral=True
+                )
                 return
             
             # Transfer captainship
