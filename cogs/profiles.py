@@ -1220,7 +1220,7 @@ class TeamManagementView(discord.ui.View):
         except asyncio.TimeoutError:
             await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
     
-    @discord.ui.button(label="➕ Add Player", style=discord.ButtonStyle.success, custom_id="add_player", row=1)
+    @discord.ui.button(label="➕ Add Player", style=discord.ButtonStyle.success, custom_id="add_player", row=0)
     async def add_player_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Add a player to the team."""
         await interaction.response.send_message(
@@ -1385,7 +1385,7 @@ class TeamManagementView(discord.ui.View):
         except asyncio.TimeoutError:
             await interaction.followup.send("⏰ Request timed out. Please try again.", ephemeral=True)
     
-    @discord.ui.button(label="➖ Remove Player", style=discord.ButtonStyle.danger, custom_id="remove_player", row=1)
+    @discord.ui.button(label="➖ Remove Player", style=discord.ButtonStyle.danger, custom_id="remove_player", row=0)
     async def remove_player_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Remove a player from the team."""
         # Get current members
