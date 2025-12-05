@@ -484,8 +484,8 @@ async def create_team(name: str, tag: str, captain_id: int, region: str, logo_ur
             
             # Add captain as first member
             await conn.execute("""
-                INSERT INTO team_members (team_id, player_id)
-                VALUES ($1, $2)
+                INSERT INTO team_members (team_id, player_id, discord_id)
+                VALUES ($1, $2, $2)
             """, team['id'], captain_id)
             
             # Initialize team stats
