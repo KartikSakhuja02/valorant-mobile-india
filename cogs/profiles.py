@@ -216,10 +216,11 @@ class IndiaToggleView(View):
 
 # Main profile edit view
 class ProfileEditView(View):
-    def __init__(self, player_data: dict, user: discord.Member, bot, guild: discord.Guild):
+    def __init__(self, player_data: dict, user: discord.Member, bot, guild: discord.Guild, requester: discord.Member):
         super().__init__(timeout=300)
         self.player_data = player_data
-        self.user = user
+        self.user = user  # The profile owner
+        self.requester = requester  # The person who clicked the button
         self.bot = bot
         self.guild = guild
         
@@ -229,21 +230,44 @@ class ProfileEditView(View):
             # Remove the India Status button
             self.remove_item(self.india_status_button)
     
+    def is_admin(self, member: discord.Member) -> bool:
+        """Check if user has admin/staff/moderator role"""
+        admin_role_id = cfg('ROLE_ADMIN_ID')
+        staff_role_id = cfg('ROLE_STAFF_ID')
+        mod_role_id = cfg('ROLE_MODERATOR_ID')
+        
+        member_role_ids = [role.id for role in member.roles]
+        
+        if admin_role_id and int(admin_role_id) in member_role_ids:
+            return True
+        if staff_role_id and int(staff_role_id) in member_role_ids:
+            return True
+        if mod_role_id and int(mod_role_id) in member_role_ids:
+            return True
+        
+        return False
+    
     @discord.ui.button(label="Edit IGN", style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_ign_button(self, interaction: discord.Interaction, button: Button):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+        # Allow profile owner or admins
+        if interaction.user.id != self.user.id and not self.is_admin(interaction.user):
+            await interaction.response.send_message("❌ Only the profile owner or admins can edit this!", ephemeral=True)
             return
         
+        is_admin_edit = interaction.user.id != self.user.id
+        helper_name = interaction.user.display_name if is_admin_edit else None
+        
+        dm_target = "your" if not is_admin_edit else f"{self.user.mention}'s"
         await interaction.response.send_message(
-            "📩 Check your DMs! I've sent you a message to update your IGN.",
+            f"📩 Check {dm_target} DMs! I've sent a message to update the IGN.",
             ephemeral=True
         )
         
         try:
             dm_channel = await self.user.create_dm()
+            prefix = f"🛡️ **Admin {helper_name} is helping you edit your profile**\n\n" if is_admin_edit else ""
             await dm_channel.send(
-                "✏️ **Edit IGN**\n\n"
+                f"{prefix}✏️ **Edit IGN**\n\n"
                 f"Current IGN: **{self.player_data.get('ign', 'Unknown')}**\n\n"
                 "Please reply with your new IGN (you have 5 minutes):"
             )
@@ -276,19 +300,25 @@ class ProfileEditView(View):
     
     @discord.ui.button(label="Edit Player ID", style=discord.ButtonStyle.primary, emoji="🆔")
     async def edit_id_button(self, interaction: discord.Interaction, button: Button):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+        # Allow profile owner or admins
+        if interaction.user.id != self.user.id and not self.is_admin(interaction.user):
+            await interaction.response.send_message("❌ Only the profile owner or admins can edit this!", ephemeral=True)
             return
         
+        is_admin_edit = interaction.user.id != self.user.id
+        helper_name = interaction.user.display_name if is_admin_edit else None
+        
+        dm_target = "your" if not is_admin_edit else f"{self.user.mention}'s"
         await interaction.response.send_message(
-            "📩 Check your DMs! I've sent you a message to update your Player ID.",
+            f"📩 Check {dm_target} DMs! I've sent a message to update the Player ID.",
             ephemeral=True
         )
         
         try:
             dm_channel = await self.user.create_dm()
+            prefix = f"🛡️ **Admin {helper_name} is helping you edit your profile**\n\n" if is_admin_edit else ""
             await dm_channel.send(
-                "🆔 **Edit Player ID**\n\n"
+                f"{prefix}🆔 **Edit Player ID**\n\n"
                 f"Current Player ID: **{self.player_data.get('player_id', 'Unknown')}**\n\n"
                 "Please reply with your new Player ID (numbers only, you have 5 minutes):"
             )
@@ -323,21 +353,27 @@ class ProfileEditView(View):
     
     @discord.ui.button(label="Change Region", style=discord.ButtonStyle.primary, emoji="🌍")
     async def change_region_button(self, interaction: discord.Interaction, button: Button):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+        # Allow profile owner or admins
+        if interaction.user.id != self.user.id and not self.is_admin(interaction.user):
+            await interaction.response.send_message("❌ Only the profile owner or admins can edit this!", ephemeral=True)
             return
+        
+        is_admin_edit = interaction.user.id != self.user.id
+        helper_name = interaction.user.display_name if is_admin_edit else None
         
         try:
             dm_channel = await self.user.create_dm()
             view = RegionSelectView(self.user, self.guild)
             
+            dm_target = "your" if not is_admin_edit else f"{self.user.mention}'s"
             await interaction.response.send_message(
-                "📩 Check your DMs! I've sent you a message to update your region.",
+                f"📩 Check {dm_target} DMs! I've sent a message to update the region.",
                 ephemeral=True
             )
             
+            prefix = f"🛡️ **Admin {helper_name} is helping you edit your profile**\n\n" if is_admin_edit else ""
             await dm_channel.send(
-                "🌍 **Change Region**\n\n"
+                f"{prefix}🌍 **Change Region**\n\n"
                 f"Current Region: **{self.player_data.get('region', 'Unknown')}**\n\n"
                 "Please select your new region:",
                 view=view
@@ -356,23 +392,29 @@ class ProfileEditView(View):
     
     @discord.ui.button(label="India Status", style=discord.ButtonStyle.primary, emoji="🇮🇳")
     async def india_status_button(self, interaction: discord.Interaction, button: Button):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("❌ This is not your profile!", ephemeral=True)
+        # Allow profile owner or admins
+        if interaction.user.id != self.user.id and not self.is_admin(interaction.user):
+            await interaction.response.send_message("❌ Only the profile owner or admins can edit this!", ephemeral=True)
             return
+        
+        is_admin_edit = interaction.user.id != self.user.id
+        helper_name = interaction.user.display_name if is_admin_edit else None
         
         try:
             dm_channel = await self.user.create_dm()
             current_status = self.player_data.get('is_india', False)
             view = IndiaToggleView(self.user, self.guild, current_status)
             
+            dm_target = "your" if not is_admin_edit else f"{self.user.mention}'s"
             await interaction.response.send_message(
-                "📩 Check your DMs! I've sent you a message to update your India status.",
+                f"📩 Check {dm_target} DMs! I've sent a message to update the India status.",
                 ephemeral=True
             )
             
             current_text = "from India" if current_status else "not from India"
+            prefix = f"🛡️ **Admin {helper_name} is helping you edit your profile**\n\n" if is_admin_edit else ""
             await dm_channel.send(
-                f"🇮🇳 **Update India Status**\n\n"
+                f"{prefix}🇮🇳 **Update India Status**\n\n"
                 f"You are currently marked as **{current_text}**.\n\n"
                 "Please select your correct status:",
                 view=view
@@ -822,9 +864,29 @@ class Profiles(commands.Cog):
                 india_status = "🇮🇳 Yes" if is_india else "❌ No"
                 profile_embed.add_field(name="From India?", value=india_status, inline=True)
 
-            # Show edit buttons only if viewing your own profile
-            if target_user.id == interaction.user.id:
-                view = ProfileEditView(player_data, interaction.user, self.bot, interaction.guild)
+            # Show edit buttons if viewing own profile OR if admin viewing any profile
+            is_own_profile = target_user.id == interaction.user.id
+            
+            # Check if user is admin
+            is_admin = False
+            if isinstance(interaction.user, discord.Member):
+                admin_role_id = cfg('ROLE_ADMIN_ID')
+                staff_role_id = cfg('ROLE_STAFF_ID')
+                mod_role_id = cfg('ROLE_MODERATOR_ID')
+                
+                member_role_ids = [role.id for role in interaction.user.roles]
+                
+                if admin_role_id and int(admin_role_id) in member_role_ids:
+                    is_admin = True
+                elif staff_role_id and int(staff_role_id) in member_role_ids:
+                    is_admin = True
+                elif mod_role_id and int(mod_role_id) in member_role_ids:
+                    is_admin = True
+            
+            if is_own_profile or is_admin:
+                view = ProfileEditView(player_data, target_user, self.bot, interaction.guild, interaction.user)
+                if is_admin and not is_own_profile:
+                    profile_embed.set_footer(text="🛡️ Admin Mode: You can edit this profile to help the user")
                 await interaction.followup.send(embed=profile_embed, view=view)
             else:
                 await interaction.followup.send(embed=profile_embed)
