@@ -19,7 +19,11 @@ load_dotenv()
 
 # Gemini API Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-GEMINI_MODEL = 'gemini-2.0-flash-exp'  # Gemini 2.0 Flash model
+GEMINI_MODELS = [
+    'gemini-1.5-flash',      # Try 1.5 flash first (more stable quota)
+    'gemini-2.0-flash-exp',  # Fallback to 2.0 experimental
+    'gemini-1.5-pro',        # Last resort - pro model
+]
 
 class MatchScanner(commands.Cog):
     """Simple match result scanner using Gemini Vision API"""
@@ -88,7 +92,7 @@ class MatchScanner(commands.Cog):
                 pass
     
     async def extract_match_data(self, image_bytes: bytes) -> Optional[Dict]:
-        """Extract match data using Gemini Vision API"""
+        """Extract match data using Gemini Vision API with model fallback"""
         
         prompt = """
 You are analyzing a VALORANT Mobile match result screenshot.
@@ -134,67 +138,82 @@ Rules:
 - If you can't read a value, use null
 """
         
-        try:
-            # Prepare API request
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-            headers = {"Content-Type": "application/json"}
-            params = {"key": GEMINI_API_KEY}
-            
-            payload = {
-                "contents": [{
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inline_data": {
-                                "mime_type": "image/png",
-                                "data": base64.b64encode(image_bytes).decode("utf-8")
+        # Try each model in sequence
+        for model_name in GEMINI_MODELS:
+            try:
+                print(f"🤖 Trying model: {model_name}")
+                
+                # Prepare API request
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                headers = {"Content-Type": "application/json"}
+                params = {"key": GEMINI_API_KEY}
+                
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt},
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/png",
+                                    "data": base64.b64encode(image_bytes).decode("utf-8")
+                                }
                             }
-                        }
-                    ]
-                }],
-                "generationConfig": {
-                    "temperature": 0,
-                    "maxOutputTokens": 2048
+                        ]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0,
+                        "maxOutputTokens": 2048
+                    }
                 }
-            }
-            
-            # Call Gemini API
-            print(f"🌐 Calling Gemini API...")
-            timeout = aiohttp.ClientTimeout(total=60)  # Increased to 60 seconds
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, headers=headers, params=params, json=payload) as resp:
-                    print(f"📡 Response status: {resp.status}")
-                    
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        print(f"❌ Gemini API error: {resp.status} - {error_text}")
-                        return None
-                    
-                    data = await resp.json()
-                    print(f"✅ Got response from Gemini")
-            
-            # Parse response
-            if "candidates" not in data or not data["candidates"]:
-                print(f"❌ No candidates in response: {data}")
-                return None
-            
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            
-            # Extract JSON from response
-            match_data = self.extract_json(text)
-            
-            # Validate data
-            if not self.validate_match_data(match_data):
-                print(f"❌ Invalid match data: {match_data}")
-                return None
-            
-            return match_data
-            
-        except Exception as e:
-            print(f"❌ Error calling Gemini API: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+                
+                # Call Gemini API
+                print(f"🌐 Calling Gemini API with {model_name}...")
+                timeout = aiohttp.ClientTimeout(total=60)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, headers=headers, params=params, json=payload) as resp:
+                        print(f"📡 Response status: {resp.status}")
+                        
+                        if resp.status == 429:
+                            # Rate limit - try next model
+                            print(f"⚠️ Rate limit on {model_name}, trying next model...")
+                            continue
+                        
+                        if resp.status != 200:
+                            error_text = await resp.text()
+                            print(f"❌ Gemini API error with {model_name}: {resp.status} - {error_text}")
+                            continue
+                        
+                        data = await resp.json()
+                        print(f"✅ Got response from {model_name}")
+                
+                # Parse response
+                if "candidates" not in data or not data["candidates"]:
+                    print(f"❌ No candidates in response from {model_name}")
+                    continue
+                
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                
+                # Extract JSON from response
+                match_data = self.extract_json(text)
+                
+                # Validate data
+                if not self.validate_match_data(match_data):
+                    print(f"❌ Invalid match data from {model_name}")
+                    continue
+                
+                print(f"✅ Successfully extracted data using {model_name}")
+                return match_data
+                
+            except asyncio.TimeoutError:
+                print(f"⏱️ Timeout with {model_name}, trying next...")
+                continue
+            except Exception as e:
+                print(f"❌ Error with {model_name}: {e}")
+                continue
+        
+        # All models failed
+        print("❌ All models failed or rate limited")
+        return None
     
     def extract_json(self, text: str) -> Dict:
         """Extract JSON from Gemini response"""
