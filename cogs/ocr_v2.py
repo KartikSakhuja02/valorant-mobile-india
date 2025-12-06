@@ -30,7 +30,11 @@ class MatchScanner(commands.Cog):
     @app_commands.command(name="scan", description="Scan a match result screenshot")
     async def scan_match(self, interaction: discord.Interaction, screenshot: discord.Attachment):
         """Scan match screenshot and extract results"""
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except Exception as e:
+            print(f"Error deferring: {e}")
+            return
         
         try:
             # Validate image
@@ -38,20 +42,27 @@ class MatchScanner(commands.Cog):
                 await interaction.followup.send("❌ Please upload a valid image file!")
                 return
             
+            print(f"📸 Processing screenshot: {screenshot.filename}")
+            
             # Download and process image
             image_bytes = await screenshot.read()
             image = Image.open(io.BytesIO(image_bytes))
+            
+            print(f"📐 Image size: {image.size}")
             
             # Resize if too large (max 1600px)
             if max(image.size) > 1600:
                 ratio = 1600 / max(image.size)
                 new_size = tuple(int(dim * ratio) for dim in image.size)
                 image = image.resize(new_size, Image.LANCZOS)
+                print(f"📐 Resized to: {new_size}")
             
             # Convert to PNG for API
             png_buffer = io.BytesIO()
             image.save(png_buffer, format='PNG')
             png_bytes = png_buffer.getvalue()
+            
+            print(f"📦 PNG size: {len(png_bytes)} bytes")
             
             # Extract data using Gemini
             await interaction.followup.send("🔍 Analyzing screenshot...")
@@ -62,6 +73,8 @@ class MatchScanner(commands.Cog):
                 await interaction.followup.send("❌ Could not extract match data. Please ensure the screenshot shows the match results clearly.")
                 return
             
+            print(f"✅ Extracted data: {json.dumps(match_data, indent=2)}")
+            
             # Display results
             await self.display_match_results(interaction, match_data)
             
@@ -69,7 +82,10 @@ class MatchScanner(commands.Cog):
             print(f"❌ Error scanning match: {e}")
             import traceback
             traceback.print_exc()
-            await interaction.followup.send(f"❌ Error scanning screenshot: {str(e)}")
+            try:
+                await interaction.followup.send(f"❌ Error scanning screenshot: {str(e)}")
+            except:
+                pass
     
     async def extract_match_data(self, image_bytes: bytes) -> Optional[Dict]:
         """Extract match data using Gemini Vision API"""
@@ -143,14 +159,19 @@ Rules:
             }
             
             # Call Gemini API
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, params=params, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            print(f"🌐 Calling Gemini API...")
+            timeout = aiohttp.ClientTimeout(total=60)  # Increased to 60 seconds
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, headers=headers, params=params, json=payload) as resp:
+                    print(f"📡 Response status: {resp.status}")
+                    
                     if resp.status != 200:
                         error_text = await resp.text()
                         print(f"❌ Gemini API error: {resp.status} - {error_text}")
                         return None
                     
                     data = await resp.json()
+                    print(f"✅ Got response from Gemini")
             
             # Parse response
             if "candidates" not in data or not data["candidates"]:
