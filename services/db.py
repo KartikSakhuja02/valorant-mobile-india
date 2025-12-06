@@ -1475,6 +1475,45 @@ async def add_team_coach(team_id: int, coach_id: int):
             """, team_id, coach_id)
 
 
+async def add_team_manager(team_id: int, manager_id: int, slot: int):
+    """Add a manager to the team (slot 1 or 2)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Check if team_staff record exists
+        staff = await conn.fetchrow("""
+            SELECT * FROM team_staff WHERE team_id = $1
+        """, team_id)
+        
+        if slot == 1:
+            if staff:
+                # Update existing record
+                await conn.execute("""
+                    UPDATE team_staff
+                    SET manager_1_id = $1, updated_at = CURRENT_TIMESTAMP
+                    WHERE team_id = $2
+                """, manager_id, team_id)
+            else:
+                # Create new record
+                await conn.execute("""
+                    INSERT INTO team_staff (team_id, manager_1_id, created_at, updated_at)
+                    VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, team_id, manager_id)
+        else:  # slot == 2
+            if staff:
+                # Update existing record
+                await conn.execute("""
+                    UPDATE team_staff
+                    SET manager_2_id = $1, updated_at = CURRENT_TIMESTAMP
+                    WHERE team_id = $2
+                """, manager_id, team_id)
+            else:
+                # Create new record
+                await conn.execute("""
+                    INSERT INTO team_staff (team_id, manager_2_id, created_at, updated_at)
+                    VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, team_id, manager_id)
+
+
 async def remove_team_coach(team_id: int):
     """Remove the coach from the team."""
     pool = await get_pool()
