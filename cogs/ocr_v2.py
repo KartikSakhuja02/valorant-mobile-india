@@ -19,7 +19,7 @@ load_dotenv()
 
 # Gemini API Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-GEMINI_MODEL = 'gemini-1.5-flash-002'
+GEMINI_MODEL = 'gemini-1.5-flash-latest'  # Use latest for v1beta API
 
 class MatchScanner(commands.Cog):
     """Simple match result scanner using Gemini Vision API"""
