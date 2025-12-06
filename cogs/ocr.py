@@ -1563,11 +1563,10 @@ class OCRScanner(commands.Cog):
             # Check if Gemini already gave us valid 5v5 teams
             gemini_has_valid_teams = len(team_a) == 5 and len(team_b) == 5
             
-            # If we have significant mismatches and correction is enabled
-            # BUT: Don't correct if Gemini already gave us perfect 5v5 teams and correction would break that
-            should_correct = (enable_correction and 
-                            len(high_confidence_mismatches) >= 2 and
-                            not gemini_has_valid_teams)
+            # CRITICAL: ALWAYS correct if there are high-confidence mismatches
+            # Color detection is more reliable than Gemini's team assignment
+            # Gemini sometimes randomly assigns players even when it gives 5v5
+            should_correct = (enable_correction and len(high_confidence_mismatches) >= 2)
             
             if should_correct:
                 print(f"⚠️ Detected {len(high_confidence_mismatches)} high-confidence team assignment errors - attempting correction...")
@@ -1602,8 +1601,6 @@ class OCRScanner(commands.Cog):
                 else:
                     print(f"⚠️ Correction would produce invalid team sizes (A={len(corrected_team_a)}, B={len(corrected_team_b)}) - keeping Gemini's teams")
             
-            elif gemini_has_valid_teams and len(high_confidence_mismatches) > 0:
-                print(f"ℹ️ Found {len(high_confidence_mismatches)} color mismatches but Gemini provided perfect 5v5 teams - trusting Gemini")
             elif len(mismatches) > 0:
                 print(f"⚠️ Found {len(mismatches)} mismatches but confidence too low or count too small for auto-correction")
             else:
