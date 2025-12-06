@@ -947,9 +947,18 @@ def _row_team_from_patches(patches: List[np.ndarray], row_idx: int = None, debug
                 assignment_reason = "weighted_score_comparison"
             team = "A" if blue_score >= red_score else "B"
     else:
-        # No color detected at all - default to alternating pattern
-        team = "A" if (row_idx is not None and row_idx < 5) else "B"
-        assignment_reason = "no_color_detected_using_position"
+        # No color detected at all - use context from other rows
+        # Check if we're in a pattern based on row_idx
+        if row_idx is not None:
+            # Look at position: rows 0-4 more likely Team A, rows 5-9 more likely Team B
+            # But with gold borders, we need to be smarter
+            # Default to Team A for first 5 rows, Team B for last 5 rows
+            # This handles gold-bordered players that mask the underlying color
+            team = "A" if row_idx < 5 else "B"
+            assignment_reason = f"no_color_detected_using_position (row {row_idx})"
+        else:
+            team = "A"  # Default fallback
+            assignment_reason = "no_color_no_position_default_A"
         confidence_level = "none"
     
     debug_info = {
@@ -1553,6 +1562,34 @@ class OCRScanner(commands.Cog):
                     "is_gold": is_gold,
                     "debug": debug_info
                 })
+            
+            # Post-process: Fix gold-bordered players with no color by looking at neighbors
+            for i, result in enumerate(validation_results):
+                if result['confidence'] == 'none' and result['is_gold']:
+                    # Look at neighbors to infer team
+                    prev_team = validation_results[i-1]['color_team'] if i > 0 else None
+                    next_team = validation_results[i+1]['color_team'] if i < len(validation_results)-1 else None
+                    
+                    # If both neighbors are same team, assign to that team
+                    if prev_team and next_team and prev_team == next_team:
+                        result['color_team'] = prev_team
+                        result['confidence'] = 'medium'
+                        result['debug']['assignment_reason'] = f"inferred_from_neighbors (both {prev_team})"
+                        print(f"🔧 Row {i}: Gold border - inferred Team {prev_team} from neighbors")
+                    # If only one neighbor, use that
+                    elif prev_team and result['debug']['confidence_level'] == 'none':
+                        result['color_team'] = prev_team
+                        result['confidence'] = 'low'
+                        result['debug']['assignment_reason'] = f"inferred_from_previous ({prev_team})"
+                        print(f"🔧 Row {i}: Gold border - inferred Team {prev_team} from previous row")
+                    elif next_team and result['debug']['confidence_level'] == 'none':
+                        result['color_team'] = next_team
+                        result['confidence'] = 'low'
+                        result['debug']['assignment_reason'] = f"inferred_from_next ({next_team})"
+                        print(f"🔧 Row {i}: Gold border - inferred Team {next_team} from next row")
+                    
+                    # Update match status after inference
+                    result['match'] = result['gemini_team'] == result['color_team']
             
             # Count mismatches
             mismatches = [v for v in validation_results if not v['match']]
