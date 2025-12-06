@@ -224,7 +224,14 @@ async def call_gemini_api(image_bytes: bytes) -> Optional[Dict]:
         print("❌ No Gemini API key found")
         return None
     
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    # Try multiple models with fallback
+    models = [
+        "gemini-2.0-flash-exp",
+        "gemini-exp-1206",
+        "gemini-1.5-flash-002",
+        "gemini-1.5-flash-latest"
+    ]
+    
     headers = {"Content-Type": "application/json"}
     params = {"key": GEMINI_API_KEY}
     
@@ -246,50 +253,64 @@ async def call_gemini_api(image_bytes: bytes) -> Optional[Dict]:
         }
     }
     
-    try:
-        timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, params=params, json=payload) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    print(f"❌ Gemini API error {resp.status}: {error_text}")
-                    return None
-                
-                data = await resp.json()
-                
-                if "candidates" not in data or not data["candidates"]:
-                    print("❌ No candidates in Gemini response")
-                    return None
-                
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
-                
-                # Extract JSON from response
-                text = text.strip()
-                if text.startswith("```"):
-                    text = text.split("\n", 1)[1]
-                    if text.endswith("```"):
-                        text = text[:-3]
-                
-                start = text.find("{")
-                if start == -1:
-                    print("❌ No JSON found in response")
-                    return None
-                
-                depth = 0
-                for i, ch in enumerate(text[start:], start=start):
-                    if ch == "{":
-                        depth += 1
-                    elif ch == "}":
-                        depth -= 1
-                        if depth == 0:
-                            return json.loads(text[start:i+1])
-                
-                print("❌ Unbalanced JSON")
-                return None
+    timeout = aiohttp.ClientTimeout(total=60)
     
-    except Exception as e:
-        print(f"❌ Error calling Gemini API: {e}")
-        return None
+    # Try each model
+    for model_name in models:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+            print(f"🤖 Trying model: {model_name}")
+            
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, headers=headers, params=params, json=payload) as resp:
+                    if resp.status == 404:
+                        print(f"  ❌ Model {model_name} not found, trying next...")
+                        continue
+                    
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        print(f"  ❌ Error {resp.status}: {error_text}")
+                        continue
+                    
+                    data = await resp.json()
+                    print(f"  ✅ Success with {model_name}")
+                    
+                    if "candidates" not in data or not data["candidates"]:
+                        print("  ❌ No candidates in response")
+                        continue
+                    
+                    text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    
+                    # Extract JSON from response
+                    text = text.strip()
+                    if text.startswith("```"):
+                        text = text.split("\n", 1)[1]
+                        if text.endswith("```"):
+                            text = text[:-3]
+                    
+                    start = text.find("{")
+                    if start == -1:
+                        print("  ❌ No JSON found in response")
+                        continue
+                    
+                    depth = 0
+                    for i, ch in enumerate(text[start:], start=start):
+                        if ch == "{":
+                            depth += 1
+                        elif ch == "}":
+                            depth -= 1
+                            if depth == 0:
+                                return json.loads(text[start:i+1])
+                    
+                    print("  ❌ Unbalanced JSON")
+                    continue
+        
+        except Exception as e:
+            print(f"  ❌ Error with {model_name}: {e}")
+            continue
+    
+    print("❌ All models failed")
+    return None
 
 # ======================== MAIN COG ========================
 
