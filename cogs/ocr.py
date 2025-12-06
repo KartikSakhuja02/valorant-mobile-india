@@ -1566,6 +1566,9 @@ class OCRScanner(commands.Cog):
             # Post-process: Fix gold-bordered players with no color by looking at neighbors
             for i, result in enumerate(validation_results):
                 if result['confidence'] == 'none' and result['is_gold']:
+                    # Store original confidence for later balancing logic
+                    result['original_confidence'] = 'none'
+                    
                     # Look at neighbors to infer team
                     prev_team = validation_results[i-1]['color_team'] if i > 0 else None
                     next_team = validation_results[i+1]['color_team'] if i < len(validation_results)-1 else None
@@ -1590,6 +1593,9 @@ class OCRScanner(commands.Cog):
                     
                     # Update match status after inference
                     result['match'] = result['gemini_team'] == result['color_team']
+                else:
+                    # Store original confidence for all players
+                    result['original_confidence'] = result['confidence']
             
             # Count mismatches
             mismatches = [v for v in validation_results if not v['match']]
@@ -1627,41 +1633,40 @@ class OCRScanner(commands.Cog):
                 if not corrected_valid and corrected_acceptable:
                     if len(corrected_team_a) == 4 and len(corrected_team_b) == 6:
                         # Find the lowest confidence player in Team B
+                        # Prioritize players with original_confidence='none' (inferred players)
                         team_b_results = [r for r in validation_results if r['color_team'] == 'B']
                         team_b_results_sorted = sorted(team_b_results, key=lambda x: (
-                            0 if x['confidence'] == 'none' else
-                            1 if x['confidence'] == 'low' else
-                            2 if x['confidence'] == 'medium' else 3
+                            0 if x.get('original_confidence') == 'none' else
+                            1 if x.get('original_confidence') == 'low' else
+                            2 if x.get('original_confidence') == 'medium' else 3
                         ))
                         
                         if team_b_results_sorted:
                             weakest = team_b_results_sorted[0]
-                            if weakest['confidence'] in ['none', 'low']:
-                                # Move this player to Team A
-                                player_to_move = all_players[weakest['row']]
-                                corrected_team_b.remove(player_to_move)
-                                corrected_team_a.append(player_to_move)
-                                print(f"🔧 Balanced teams: Moved {weakest['player']} (low confidence) from Team B to Team A")
-                                corrected_valid = True
+                            # Always move the weakest player to balance teams
+                            player_to_move = all_players[weakest['row']]
+                            corrected_team_b.remove(player_to_move)
+                            corrected_team_a.append(player_to_move)
+                            print(f"🔧 Balanced teams: Moved {weakest['player']} (confidence: {weakest.get('original_confidence', weakest['confidence'])}) from Team B to Team A")
+                            corrected_valid = True
                     
                     elif len(corrected_team_a) == 6 and len(corrected_team_b) == 4:
                         # Find the lowest confidence player in Team A
                         team_a_results = [r for r in validation_results if r['color_team'] == 'A']
                         team_a_results_sorted = sorted(team_a_results, key=lambda x: (
-                            0 if x['confidence'] == 'none' else
-                            1 if x['confidence'] == 'low' else
-                            2 if x['confidence'] == 'medium' else 3
+                            0 if x.get('original_confidence') == 'none' else
+                            1 if x.get('original_confidence') == 'low' else
+                            2 if x.get('original_confidence') == 'medium' else 3
                         ))
                         
                         if team_a_results_sorted:
                             weakest = team_a_results_sorted[0]
-                            if weakest['confidence'] in ['none', 'low']:
-                                # Move this player to Team B
-                                player_to_move = all_players[weakest['row']]
-                                corrected_team_a.remove(player_to_move)
-                                corrected_team_b.append(player_to_move)
-                                print(f"🔧 Balanced teams: Moved {weakest['player']} (low confidence) from Team A to Team B")
-                                corrected_valid = True
+                            # Always move the weakest player to balance teams
+                            player_to_move = all_players[weakest['row']]
+                            corrected_team_a.remove(player_to_move)
+                            corrected_team_b.append(player_to_move)
+                            print(f"🔧 Balanced teams: Moved {weakest['player']} (confidence: {weakest.get('original_confidence', weakest['confidence'])}) from Team A to Team B")
+                            corrected_valid = True
                 
                 if corrected_valid:
                     print(f"✅ Applied color-based correction: Team A={len(corrected_team_a)}, Team B={len(corrected_team_b)}")
