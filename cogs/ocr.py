@@ -1,6 +1,7 @@
-# cogs/ocr_simple.py - Simplified OCR for VALORANT Mobile match scanning
+# cogs/ocr.py - Tesseract OCR for VALORANT Mobile match scanning
 """
-Simple OCR Scanner:
+Tesseract OCR Scanner:
+- Uses Tesseract OCR (no API costs, works offline)
 - Detects cyan (Team A) and red (Team B) players via color detection
 - Handles yellow/gold MVP players (assigns to team with 4 players)
 - Reads Win (获胜) or Defeat (败北) text for cyan team
@@ -9,26 +10,22 @@ Simple OCR Scanner:
 """
 
 import io
-import json
-import base64
+import re
 import colorsys
-import asyncio
 from typing import List, Dict, Optional
-from pathlib import Path
 import os
 
 import discord
 from discord.ext import commands
 from discord import app_commands
-import aiohttp
 from PIL import Image
 import numpy as np
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# Gemini API Key
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
+    print("⚠️ pytesseract not installed. Run: pip install pytesseract")
 
 # Chinese to English map translation
 CHINESE_MAP_NAMES = {
@@ -182,135 +179,133 @@ def detect_player_team(img: Image.Image, row_idx: int) -> str:
     # Fallback: use position (first 5 = cyan, last 5 = red)
     return "CYAN" if row_idx < 5 else "RED"
 
-# ======================== GEMINI API ========================
+# ======================== TESSERACT OCR ========================
 
-GEMINI_PROMPT = """
-You are analyzing a VALORANT Mobile end-game scoreboard screenshot.
-
-Extract the following information:
-
-1. MAP NAME (e.g., Haven, Bind, Ascent)
-2. MATCH RESULT TEXT: Look for Chinese text "获胜" (Win) or "败北" (Defeat) - this indicates if CYAN team won or lost
-3. SCORES: Two numbers separated by dash or space (e.g., "10 - 5" or "10  5")
-4. For EACH of the 10 PLAYERS (top to bottom):
-   - IGN (in-game name)
-   - K/D/A (Kills/Deaths/Assists)
-
-Return ONLY valid JSON in this format:
-{
-  "map": "Haven",
-  "result_text": "获胜",
-  "score_left": 10,
-  "score_right": 5,
-  "players": [
-    {"ign": "player1", "kills": 17, "deaths": 10, "assists": 5},
-    {"ign": "player2", "kills": 11, "deaths": 12, "assists": 4},
-    ... (10 players total)
-  ]
-}
-
-Rules:
-- Return ONLY JSON, no markdown, no explanation
-- Extract ALL 10 players in order from top to bottom
-- result_text should be "获胜" (win) or "败北" (defeat) - look for this text on the screen
-- If you can't read a value, use null
-- score_left is the LEFT score number
-- score_right is the RIGHT score number
-"""
-
-async def call_gemini_api(image_bytes: bytes) -> Optional[Dict]:
-    """Call Gemini Vision API to extract match data"""
-    if not GEMINI_API_KEY:
-        print("❌ No Gemini API key found")
-        return None
+def extract_text_from_image(image: Image.Image) -> str:
+    """Extract all text from image using Tesseract OCR"""
+    if pytesseract is None:
+        raise RuntimeError("pytesseract not installed")
     
-    # Try multiple models with fallback
-    models = [
-        "gemini-2.0-flash-exp",
-        "gemini-exp-1206",
-        "gemini-1.5-flash-002",
-        "gemini-1.5-flash-latest"
-    ]
-    
-    headers = {"Content-Type": "application/json"}
-    params = {"key": GEMINI_API_KEY}
-    
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": GEMINI_PROMPT},
-                {
-                    "inline_data": {
-                        "mime_type": "image/png",
-                        "data": base64.b64encode(image_bytes).decode("utf-8")
-                    }
-                }
-            ]
-        }],
-        "generationConfig": {
-            "temperature": 0,
-            "maxOutputTokens": 2048
-        }
-    }
-    
-    timeout = aiohttp.ClientTimeout(total=60)
-    
-    # Try each model
-    for model_name in models:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-            print(f"🤖 Trying model: {model_name}")
-            
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, headers=headers, params=params, json=payload) as resp:
-                    if resp.status == 404:
-                        print(f"  ❌ Model {model_name} not found, trying next...")
-                        continue
-                    
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        print(f"  ❌ Error {resp.status}: {error_text}")
-                        continue
-                    
-                    data = await resp.json()
-                    print(f"  ✅ Success with {model_name}")
-                    
-                    if "candidates" not in data or not data["candidates"]:
-                        print("  ❌ No candidates in response")
-                        continue
-                    
-                    text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    
-                    # Extract JSON from response
-                    text = text.strip()
-                    if text.startswith("```"):
-                        text = text.split("\n", 1)[1]
-                        if text.endswith("```"):
-                            text = text[:-3]
-                    
-                    start = text.find("{")
-                    if start == -1:
-                        print("  ❌ No JSON found in response")
-                        continue
-                    
-                    depth = 0
-                    for i, ch in enumerate(text[start:], start=start):
-                        if ch == "{":
-                            depth += 1
-                        elif ch == "}":
-                            depth -= 1
-                            if depth == 0:
-                                return json.loads(text[start:i+1])
-                    
-                    print("  ❌ Unbalanced JSON")
-                    continue
+    # Configure for English + Chinese
+    custom_config = r'--oem 3 --psm 6 -l eng+chi_sim'
+    text = pytesseract.image_to_string(image, config=custom_config)
+    return text
+
+def extract_match_data(image: Image.Image) -> Optional[Dict]:
+    """Extract match data from screenshot using Tesseract OCR"""
+    try:
+        # Get all text from image
+        text = extract_text_from_image(image)
+        print(f"📄 Extracted text:\n{text}\n")
         
-        except Exception as e:
-            print(f"  ❌ Error with {model_name}: {e}")
-            continue
+        # Extract map name
+        map_name = "Unknown"
+        for chinese, english in CHINESE_MAP_NAMES.items():
+            if chinese in text:
+                map_name = english
+                break
+        
+        # Check for English map names if Chinese not found
+        if map_name == "Unknown":
+            text_lower = text.lower()
+            english_maps = ['ascent', 'bind', 'icebox', 'haven', 'split', 'breeze', 
+                          'fracture', 'pearl', 'lotus', 'sunset', 'abyss']
+            for eng_map in english_maps:
+                if eng_map in text_lower:
+                    map_name = eng_map.capitalize()
+                    break
+        
+        # Extract Win/Defeat text
+        result_text = ""
+        if "获胜" in text:
+            result_text = "获胜"
+            print("🏆 Found: 获胜 (Win)")
+        elif "败北" in text:
+            result_text = "败北"
+            print("💔 Found: 败北 (Defeat)")
+        
+        # Extract scores (look for patterns like "10 - 5" or "10  5")
+        score_patterns = [
+            r'(\d{1,2})\s*[-–—]\s*(\d{1,2})',  # 10 - 5
+            r'(\d{1,2})\s+(\d{1,2})',           # 10  5
+        ]
+        
+        score_left = 0
+        score_right = 0
+        
+        for pattern in score_patterns:
+            match = re.search(pattern, text)
+            if match:
+                score_left = int(match.group(1))
+                score_right = int(match.group(2))
+                print(f"📊 Scores: {score_left} - {score_right}")
+                break
+        
+        # Extract player data (K/D/A patterns)
+        # Look for patterns like: "17 / 10 / 5" or "17/10/5"
+        kda_pattern = r'(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{1,2})'
+        kda_matches = re.findall(kda_pattern, text)
+        
+        print(f"🎮 Found {len(kda_matches)} K/D/A entries")
+        
+        # Extract player names (complex, will use lines before K/D/A)
+        lines = text.split('\n')
+        players = []
+        
+        for i, line in enumerate(lines):
+            # Check if this line has K/D/A
+            kda_match = re.search(kda_pattern, line)
+            if kda_match:
+                kills = int(kda_match.group(1))
+                deaths = int(kda_match.group(2))
+                assists = int(kda_match.group(3))
+                
+                # Try to find player name in same line or previous lines
+                # Remove K/D/A from line to get name
+                name_part = re.sub(kda_pattern, '', line).strip()
+                
+                # Clean up common OCR artifacts
+                name_part = re.sub(r'[|\\\/]', '', name_part)
+                name_part = name_part.strip()
+                
+                # If name is too short or empty, try previous line
+                if len(name_part) < 2 and i > 0:
+                    name_part = lines[i-1].strip()
+                
+                # Use fallback if still empty
+                if not name_part or len(name_part) < 2:
+                    name_part = f"Player{len(players)+1}"
+                
+                players.append({
+                    "ign": name_part,
+                    "kills": kills,
+                    "deaths": deaths,
+                    "assists": assists
+                })
+        
+        print(f"✅ Extracted {len(players)} players")
+        
+        # Validate we have 10 players
+        if len(players) < 8:
+            print(f"⚠️ Only found {len(players)} players, need at least 8")
+            return None
+        
+        # Take first 10 players
+        players = players[:10]
+        
+        return {
+            "map": map_name,
+            "result_text": result_text,
+            "score_left": score_left,
+            "score_right": score_right,
+            "players": players
+        }
     
-    print("❌ All models failed")
-    return None
+    except Exception as e:
+        print(f"❌ Error extracting data: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 # ======================== MAIN COG ========================
 
@@ -322,7 +317,7 @@ class SimpleOCRScanner(commands.Cog):
     
     @app_commands.command(name="scan", description="Scan a match screenshot")
     async def scan_match(self, interaction: discord.Interaction, screenshot: discord.Attachment):
-        """Scan match screenshot and extract results"""
+        """Scan match screenshot and extract results using Tesseract OCR"""
         await interaction.response.defer()
         
         try:
@@ -346,21 +341,16 @@ class SimpleOCRScanner(commands.Cog):
                 image = image.resize(new_size, Image.LANCZOS)
                 print(f"📐 Resized to: {new_size}")
             
-            # Convert to PNG
-            png_buffer = io.BytesIO()
-            image.save(png_buffer, format='PNG')
-            png_bytes = png_buffer.getvalue()
+            # Extract data using Tesseract
+            await interaction.followup.send("🔍 Analyzing screenshot with Tesseract OCR...")
             
-            # Extract data using Gemini
-            await interaction.followup.send("🔍 Analyzing screenshot...")
+            tesseract_data = extract_match_data(image)
             
-            gemini_data = await call_gemini_api(png_bytes)
-            
-            if not gemini_data:
+            if not tesseract_data:
                 await interaction.followup.send("❌ Could not extract match data. Please ensure the screenshot shows the scoreboard clearly.")
                 return
             
-            print(f"✅ Gemini data: {json.dumps(gemini_data, indent=2)}")
+            print(f"✅ Tesseract data extracted")
             
             # Detect team colors for all 10 players
             print("\n🎨 Detecting player team colors...")
@@ -404,7 +394,7 @@ class SimpleOCRScanner(commands.Cog):
                                 print(f"🟡 Assigned gold player (row {i}) to RED (default)")
             
             # Build teams
-            players = gemini_data.get("players", [])
+            players = tesseract_data.get("players", [])
             team_cyan = []
             team_red = []
             
@@ -417,9 +407,9 @@ class SimpleOCRScanner(commands.Cog):
             print(f"\n✅ Final teams: Cyan={len(team_cyan)}, Red={len(team_red)}")
             
             # Determine scores and winner
-            score_left = gemini_data.get("score_left", 0)
-            score_right = gemini_data.get("score_right", 0)
-            result_text = gemini_data.get("result_text", "")
+            score_left = tesseract_data.get("score_left", 0)
+            score_right = tesseract_data.get("score_right", 0)
+            result_text = tesseract_data.get("result_text", "")
             
             # "获胜" = Win, "败北" = Defeat (for CYAN team)
             if "获胜" in result_text:
@@ -444,7 +434,7 @@ class SimpleOCRScanner(commands.Cog):
                     winner = "Team B (Red)"
             
             # Map name
-            map_name = translate_map_name(gemini_data.get("map", "Unknown"))
+            map_name = translate_map_name(tesseract_data.get("map", "Unknown"))
             
             # Display results
             await self.display_results(interaction, map_name, cyan_score, red_score, 
