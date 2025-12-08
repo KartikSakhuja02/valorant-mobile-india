@@ -181,14 +181,32 @@ def detect_player_team(img: Image.Image, row_idx: int) -> str:
 
 # ======================== TESSERACT OCR ========================
 
+def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
+    """Preprocess image to improve OCR accuracy"""
+    # Convert to grayscale
+    img_gray = image.convert('L')
+    
+    # Increase contrast
+    img_array = np.array(img_gray)
+    
+    # Apply adaptive threshold to make text clearer
+    # Increase brightness slightly
+    img_array = np.clip(img_array * 1.2, 0, 255).astype(np.uint8)
+    
+    return Image.fromarray(img_array)
+
 def extract_text_from_image(image: Image.Image) -> str:
     """Extract all text from image using Tesseract OCR"""
     if pytesseract is None:
         raise RuntimeError("pytesseract not installed")
     
-    # Configure for English + Chinese
-    custom_config = r'--oem 3 --psm 6 -l eng+chi_sim'
-    text = pytesseract.image_to_string(image, config=custom_config)
+    # Preprocess image for better OCR
+    processed_img = preprocess_image_for_ocr(image)
+    
+    # Configure for English + Chinese with optimized settings
+    # PSM 4: Assume a single column of text of variable sizes
+    custom_config = r'--oem 3 --psm 4 -l eng+chi_sim'
+    text = pytesseract.image_to_string(processed_img, config=custom_config)
     return text
 
 def extract_match_data(image: Image.Image) -> Optional[Dict]:
@@ -196,7 +214,10 @@ def extract_match_data(image: Image.Image) -> Optional[Dict]:
     try:
         # Get all text from image
         text = extract_text_from_image(image)
-        print(f"📄 Extracted text:\n{text}\n")
+        print(f"📄 RAW OCR TEXT ({len(text)} chars):")
+        print("=" * 60)
+        print(text)
+        print("=" * 60)
         
         # Extract map name
         map_name = "Unknown"
@@ -242,53 +263,122 @@ def extract_match_data(image: Image.Image) -> Optional[Dict]:
                 break
         
         # Extract player data (K/D/A patterns)
-        # Look for patterns like: "17 / 10 / 5" or "17/10/5"
-        kda_pattern = r'(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{1,2})'
-        kda_matches = re.findall(kda_pattern, text)
+        # Look for patterns like: "17 / 10 / 5", "17/10/5", "17 /10 / 5" (with varying spaces)
+        kda_patterns = [
+            r'(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{1,2})',  # 17 / 10 / 5
+            r'(\d{1,2})/(\d{1,2})/(\d{1,2})',              # 17/10/5
+            r'(\d{1,2})\s+/\s+(\d{1,2})\s+/\s+(\d{1,2})',  # 17  /  10  /  5 (extra spaces)
+        ]
         
+        kda_matches = []
+        for pattern in kda_patterns:
+            matches = re.findall(pattern, text)
+            kda_matches.extend(matches)
+        
+        # Remove duplicates (in case same K/D/A matched multiple patterns)
+        seen = set()
+        unique_kda = []
+        for match in kda_matches:
+            match_tuple = tuple(match)
+            if match_tuple not in seen:
+                seen.add(match_tuple)
+                unique_kda.append(match)
+        
+        kda_matches = unique_kda
         print(f"🎮 Found {len(kda_matches)} K/D/A entries")
         
         # Extract player names (complex, will use lines before K/D/A)
         lines = text.split('\n')
         players = []
         
+        # Build a list of K/D/A values for matching
+        kda_strings = [f"{k}/{d}/{a}" for k, d, a in kda_matches]
+        
         for i, line in enumerate(lines):
-            # Check if this line has K/D/A
-            kda_match = re.search(kda_pattern, line)
-            if kda_match:
-                kills = int(kda_match.group(1))
-                deaths = int(kda_match.group(2))
-                assists = int(kda_match.group(3))
+            # Check if this line has K/D/A (more flexible matching)
+            found_kda = None
+            for kda_idx, (kills, deaths, assists) in enumerate(kda_matches):
+                # Check if this K/D/A is in the line
+                if f"{kills}" in line and f"{deaths}" in line and f"{assists}" in line:
+                    found_kda = (kills, deaths, assists, kda_idx)
+                    break
+            
+            if found_kda:
+                kills, deaths, assists, kda_idx = found_kda
                 
-                # Try to find player name in same line or previous lines
-                # Remove K/D/A from line to get name
-                name_part = re.sub(kda_pattern, '', line).strip()
+                # Try to extract player name from same line
+                # Remove numbers and common separators to get name
+                name_part = line
                 
-                # Clean up common OCR artifacts
-                name_part = re.sub(r'[|\\\/]', '', name_part)
+                # Remove K/D/A numbers
+                name_part = re.sub(r'\d+\s*/\s*\d+\s*/\s*\d+', '', name_part)
+                # Remove standalone numbers (scores, etc.)
+                name_part = re.sub(r'\b\d+\b', '', name_part)
+                # Remove common separators and whitespace
+                name_part = re.sub(r'[|\\\/\-_]+', ' ', name_part)
                 name_part = name_part.strip()
                 
-                # If name is too short or empty, try previous line
+                # If name is too short, try previous lines
                 if len(name_part) < 2 and i > 0:
-                    name_part = lines[i-1].strip()
+                    # Check up to 2 lines before
+                    for prev_offset in range(1, 3):
+                        if i - prev_offset >= 0:
+                            prev_line = lines[i - prev_offset].strip()
+                            # Only use if it's not another K/D/A line
+                            if not re.search(r'\d+\s*/\s*\d+\s*/\s*\d+', prev_line):
+                                name_part = prev_line
+                                # Clean up the name
+                                name_part = re.sub(r'[|\\\/\-_]+', ' ', name_part)
+                                name_part = re.sub(r'\b\d+\b', '', name_part)
+                                name_part = name_part.strip()
+                                if len(name_part) >= 2:
+                                    break
+                
+                # Clean up common OCR artifacts
+                name_part = name_part.replace('|', '').replace('\\', '').replace('/', '')
+                name_part = ' '.join(name_part.split())  # Normalize whitespace
                 
                 # Use fallback if still empty
                 if not name_part or len(name_part) < 2:
                     name_part = f"Player{len(players)+1}"
                 
-                players.append({
-                    "ign": name_part,
-                    "kills": kills,
-                    "deaths": deaths,
-                    "assists": assists
-                })
+                # Avoid duplicates (same K/D/A shouldn't be counted twice)
+                if kda_idx not in [p.get('kda_idx') for p in players]:
+                    players.append({
+                        "ign": name_part,
+                        "kills": int(kills),
+                        "deaths": int(deaths),
+                        "assists": int(assists),
+                        "kda_idx": kda_idx
+                    })
+        
+        # Remove the helper index
+        for player in players:
+            player.pop('kda_idx', None)
         
         print(f"✅ Extracted {len(players)} players")
         
-        # Validate we have 10 players
+        # Validate we have enough players
         if len(players) < 8:
-            print(f"⚠️ Only found {len(players)} players, need at least 8")
-            return None
+            print(f"⚠️ Only found {len(players)} players with names, trying fallback...")
+            
+            # Fallback: just use all K/D/A matches without trying to extract names
+            players = []
+            for idx, (kills, deaths, assists) in enumerate(kda_matches[:10]):
+                players.append({
+                    "ign": f"Player{idx+1}",
+                    "kills": int(kills),
+                    "deaths": int(deaths),
+                    "assists": int(assists)
+                })
+            
+            print(f"📝 Using fallback: {len(players)} players with generic names")
+            
+            if len(players) < 8:
+                print(f"❌ Still only found {len(players)} K/D/A entries")
+                print(f"📝 Full OCR text for debugging:")
+                print(text)
+                return None
         
         # Take first 10 players
         players = players[:10]
