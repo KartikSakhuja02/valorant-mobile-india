@@ -27,8 +27,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Gemini API Key
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+# Claude API Key
+CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
 
 # Chinese to English map translation
 CHINESE_MAP_NAMES = {
@@ -182,10 +182,9 @@ def detect_player_team(img: Image.Image, row_idx: int) -> str:
     # Fallback: use position (first 5 = cyan, last 5 = red)
     return "CYAN" if row_idx < 5 else "RED"
 
-# ======================== GEMINI API ========================
+# ======================== CLAUDE API ========================
 
-GEMINI_PROMPT = """
-You are analyzing a VALORANT Mobile end-game scoreboard screenshot.
+CLAUDE_PROMPT = """You are analyzing a VALORANT Mobile end-game scoreboard screenshot.
 
 Extract the following information:
 
@@ -215,102 +214,99 @@ Rules:
 - result_text should be "获胜" (win) or "败北" (defeat) - look for this text on the screen
 - If you can't read a value, use null
 - score_left is the LEFT score number
-- score_right is the RIGHT score number
-"""
+- score_right is the RIGHT score number"""
 
-async def call_gemini_api(image_bytes: bytes) -> Optional[Dict]:
-    """Call Gemini Vision API to extract match data"""
-    if not GEMINI_API_KEY:
-        print("❌ No Gemini API key found")
+async def call_claude_api(image_bytes: bytes) -> Optional[Dict]:
+    """Call Claude Vision API to extract match data"""
+    if not CLAUDE_API_KEY:
+        print("❌ No Claude API key found")
         return None
     
-    # Try multiple models with fallback
-    models = [
-        "gemini-2.0-flash-exp",
-        "gemini-exp-1206",
-        "gemini-1.5-flash-002",
-        "gemini-1.5-flash-latest"
-    ]
-    
-    headers = {"Content-Type": "application/json"}
-    params = {"key": GEMINI_API_KEY}
-    
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": GEMINI_PROMPT},
+    try:
+        # Encode image to base64
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        
+        # Claude API endpoint
+        url = "https://api.anthropic.com/v1/messages"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": CLAUDE_API_KEY,
+            "anthropic-version": "2023-06-01"
+        }
+        
+        payload = {
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 2048,
+            "messages": [
                 {
-                    "inline_data": {
-                        "mime_type": "image/png",
-                        "data": base64.b64encode(image_bytes).decode("utf-8")
-                    }
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": image_b64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": CLAUDE_PROMPT
+                        }
+                    ]
                 }
             ]
-        }],
-        "generationConfig": {
-            "temperature": 0,
-            "maxOutputTokens": 2048
         }
-    }
-    
-    timeout = aiohttp.ClientTimeout(total=60)
-    
-    # Try each model
-    for model_name in models:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-            print(f"🤖 Trying model: {model_name}")
-            
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, headers=headers, params=params, json=payload) as resp:
-                    if resp.status == 404:
-                        print(f"  ❌ Model {model_name} not found, trying next...")
-                        continue
-                    
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        print(f"  ❌ Error {resp.status}: {error_text}")
-                        continue
-                    
-                    data = await resp.json()
-                    print(f"  ✅ Success with {model_name}")
-                    
-                    if "candidates" not in data or not data["candidates"]:
-                        print("  ❌ No candidates in response")
-                        continue
-                    
-                    text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    
-                    # Extract JSON from response
-                    text = text.strip()
-                    if text.startswith("```"):
-                        text = text.split("\n", 1)[1]
-                        if text.endswith("```"):
-                            text = text[:-3]
-                    
-                    start = text.find("{")
-                    if start == -1:
-                        print("  ❌ No JSON found in response")
-                        continue
-                    
-                    depth = 0
-                    for i, ch in enumerate(text[start:], start=start):
-                        if ch == "{":
-                            depth += 1
-                        elif ch == "}":
-                            depth -= 1
-                            if depth == 0:
-                                return json.loads(text[start:i+1])
-                    
-                    print("  ❌ Unbalanced JSON")
-                    continue
         
-        except Exception as e:
-            print(f"  ❌ Error with {model_name}: {e}")
-            continue
+        timeout = aiohttp.ClientTimeout(total=60)
+        
+        print(f"🤖 Calling Claude API (claude-3-5-sonnet-20241022)...")
+        
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    print(f"  ❌ Error {resp.status}: {error_text}")
+                    return None
+                
+                data = await resp.json()
+                print(f"  ✅ Success with Claude")
+                
+                # Extract text from Claude response
+                if "content" not in data or not data["content"]:
+                    print("  ❌ No content in response")
+                    return None
+                
+                text = data["content"][0]["text"]
+                
+                # Extract JSON from response
+                text = text.strip()
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[1]
+                    if text.endswith("```"):
+                        text = text[:-3]
+                
+                start = text.find("{")
+                if start == -1:
+                    print("  ❌ No JSON found in response")
+                    return None
+                
+                depth = 0
+                for i, ch in enumerate(text[start:], start=start):
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            return json.loads(text[start:i+1])
+                
+                print("  ❌ Unbalanced JSON")
+                return None
     
-    print("❌ All models failed")
-    return None
+    except Exception as e:
+        print(f"  ❌ Error with Claude API: {e}")
+        return None
 
 # ======================== MAIN COG ========================
 
@@ -351,16 +347,16 @@ class SimpleOCRScanner(commands.Cog):
             image.save(png_buffer, format='PNG')
             png_bytes = png_buffer.getvalue()
             
-            # Extract data using Gemini
-            await interaction.followup.send("🔍 Analyzing screenshot...")
+            # Extract data using Claude
+            await interaction.followup.send("🔍 Analyzing screenshot with Claude API...")
             
-            gemini_data = await call_gemini_api(png_bytes)
+            claude_data = await call_claude_api(png_bytes)
             
-            if not gemini_data:
+            if not claude_data:
                 await interaction.followup.send("❌ Could not extract match data. Please ensure the screenshot shows the scoreboard clearly.")
                 return
             
-            print(f"✅ Gemini data: {json.dumps(gemini_data, indent=2)}")
+            print(f"✅ Claude data: {json.dumps(claude_data, indent=2)}")
             
             # Detect team colors for all 10 players
             print("\n🎨 Detecting player team colors...")
@@ -404,7 +400,7 @@ class SimpleOCRScanner(commands.Cog):
                                 print(f"🟡 Assigned gold player (row {i}) to RED (default)")
             
             # Build teams
-            players = gemini_data.get("players", [])
+            players = claude_data.get("players", [])
             team_cyan = []
             team_red = []
             
@@ -417,9 +413,9 @@ class SimpleOCRScanner(commands.Cog):
             print(f"\n✅ Final teams: Cyan={len(team_cyan)}, Red={len(team_red)}")
             
             # Determine scores and winner
-            score_left = gemini_data.get("score_left", 0)
-            score_right = gemini_data.get("score_right", 0)
-            result_text = gemini_data.get("result_text", "")
+            score_left = claude_data.get("score_left", 0)
+            score_right = claude_data.get("score_right", 0)
+            result_text = claude_data.get("result_text", "")
             
             # "获胜" = Win, "败北" = Defeat (for CYAN team)
             if "获胜" in result_text:
@@ -444,7 +440,7 @@ class SimpleOCRScanner(commands.Cog):
                     winner = "Team B (Red)"
             
             # Map name
-            map_name = translate_map_name(gemini_data.get("map", "Unknown"))
+            map_name = translate_map_name(claude_data.get("map", "Unknown"))
             
             # Display results
             await self.display_results(interaction, map_name, cyan_score, red_score, 
