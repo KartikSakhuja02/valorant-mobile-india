@@ -275,6 +275,11 @@ class Teams(commands.Cog):
             await interaction.response.send_message("You are not the captain of any team.", ephemeral=True)
             return
 
+        # Validate logo is an image
+        if not logo.content_type or not logo.content_type.startswith('image/'):
+            await interaction.response.send_message("❌ Please upload a valid image file (PNG, JPG, GIF, etc.)", ephemeral=True)
+            return
+
         # Update logo URL with the attachment's URL
         await db.update_team_logo(captain_team['id'], logo.url)
         
@@ -302,7 +307,16 @@ class Teams(commands.Cog):
         except Exception as e:
             print(f"Error updating team logo in leaderboards: {e}")
 
-        await interaction.response.send_message(f"Team logo has been updated! You can see it by using the `/team-profile` command.", ephemeral=True)
+        embed = discord.Embed(
+            title="✅ Team Logo Updated!",
+            description=f"Your team logo has been updated successfully.",
+            color=discord.Color.green()
+        )
+        embed.set_thumbnail(url=logo.url)
+        embed.add_field(name="Preview", value=f"Use `/team-profile` to view your full team profile.", inline=False)
+        embed.set_footer(text="Note: Discord attachment URLs may expire. Consider using a permanent image hosting service like Imgur.")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="invite-player", description="Invite a player to your team")
     @app_commands.describe(player="The player to invite")

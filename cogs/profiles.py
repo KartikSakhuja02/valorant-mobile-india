@@ -1043,8 +1043,12 @@ class Profiles(commands.Cog):
 
             # Set thumbnail - use team logo or default Valorant logo
             logo_url = target_team.get("logo_url")
-            if logo_url and logo_url.startswith('http'):
-                embed.set_thumbnail(url=logo_url)
+            if logo_url and isinstance(logo_url, str) and (logo_url.startswith('http://') or logo_url.startswith('https://')):
+                try:
+                    embed.set_thumbnail(url=logo_url)
+                except:
+                    # If logo fails to load, use default
+                    embed.set_thumbnail(url="https://i.imgur.com/dJriIOC.png")
             else:
                 # Use Valorant logo as default
                 embed.set_thumbnail(url="https://i.imgur.com/dJriIOC.png")
