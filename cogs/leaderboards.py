@@ -215,10 +215,6 @@ class LeaderboardPagination(discord.ui.View):
         
         embed.add_field(name="📊 Team Rankings", value=leaderboard_text, inline=False)
         
-        start_team = start_idx + 1
-        end_team = end_idx
-        embed.set_footer(text=f"Showing teams {start_team}-{end_team} of {len(self.teams)} | Page {self.current_page + 1}/{self.total_pages}")
-        
         await interaction.response.edit_message(embed=embed, view=self)
 
 
@@ -304,14 +300,13 @@ class Leaderboards(commands.Cog):
             
             embed.add_field(name="📊 Team Rankings", value=leaderboard_text, inline=False)
             
-            # If more than 15 teams, add pagination
+            # Always add pagination if there are teams
             if len(teams) > 15:
                 view = LeaderboardPagination(teams, current_page=0)
-                embed.set_footer(text=f"Showing teams 1-{min(15, len(teams))} of {len(teams)} | Page 1/{(len(teams) + 14) // 15}")
                 await interaction.followup.send(embed=embed, view=view)
             else:
-                embed.set_footer(text=f"Showing all {len(teams)} team{'s' if len(teams) != 1 else ''}")
-                await interaction.followup.send(embed=embed)
+                view = LeaderboardPagination(teams, current_page=0)
+                await interaction.followup.send(embed=embed, view=view)
                 
         except Exception as e:
             await interaction.followup.send(f"❌ Error generating leaderboard: {e}", ephemeral=True)
