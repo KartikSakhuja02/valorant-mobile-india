@@ -218,9 +218,15 @@ class Leaderboards(commands.Cog):
             
             # If leaderboard is empty, fetch teams from teams table directly
             if not teams:
+                # First try India region
                 all_teams = await db.get_all_teams(region='india')
+                
+                # If still empty, get ALL teams from database
                 if not all_teams:
-                    await interaction.followup.send("❌ No teams registered in India region.", ephemeral=True)
+                    all_teams = await db.get_all_teams()
+                    
+                if not all_teams:
+                    await interaction.followup.send("❌ No teams registered in the database.", ephemeral=True)
                     return
                 
                 # Convert teams table format to leaderboard format

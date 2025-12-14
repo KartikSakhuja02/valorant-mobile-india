@@ -678,7 +678,7 @@ async def get_all_teams(region: str = None) -> list:
                 SELECT t.*, 
                        (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) as member_count
                 FROM teams t
-                WHERE t.region = $1
+                WHERE LOWER(t.region) = LOWER($1)
                 ORDER BY t.created_at DESC
             """, region)
         else:
