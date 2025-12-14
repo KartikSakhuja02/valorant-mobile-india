@@ -180,25 +180,43 @@ class LeaderboardPagination(discord.ui.View):
     
     async def send_page(self, interaction: discord.Interaction):
         """Generate and send the current page."""
-        # Generate image for current page
-        image_bytes = generate_leaderboard_image(self.teams, page=self.current_page)
-        
-        # Create file
-        file = discord.File(fp=image_bytes, filename=f'india_lb_page_{self.current_page + 1}.jpg')
+        # Get teams for current page
+        start_idx = self.current_page * 15
+        end_idx = min(start_idx + 15, len(self.teams))
+        page_teams = self.teams[start_idx:end_idx]
         
         # Create embed
         embed = discord.Embed(
             title="🇮🇳 VALM India Leaderboard",
-            description=f"Displaying top teams competing in India region",
+            description=f"Top teams competing in India region",
             color=0xFF9933  # India flag orange color
         )
-        embed.set_image(url=f"attachment://india_lb_page_{self.current_page + 1}.jpg")
         
-        start_team = self.current_page * 15 + 1
-        end_team = min((self.current_page + 1) * 15, len(self.teams))
-        embed.set_footer(text=f"📊 Showing teams {start_team}-{end_team} of {len(self.teams)} | Page {self.current_page + 1}/{self.total_pages}")
+        # Add teams to embed
+        leaderboard_text = "```\n"
+        leaderboard_text += f"{'Rank':<6} {'Team':<20} {'M':<4} {'W':<4} {'L':<4} {'WR%':<6} {'Pts':<6}\n"
+        leaderboard_text += "=" * 60 + "\n"
         
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
+        for team in page_teams:
+            rank = team['rank']
+            name = team['team_name'][:18]  # Truncate long names
+            matches = team['total_matches']
+            wins = team['wins']
+            losses = team['losses']
+            win_rate = team['win_rate'] * 100
+            points = team['points']
+            
+            leaderboard_text += f"{rank:<6} {name:<20} {matches:<4} {wins:<4} {losses:<4} {win_rate:<6.1f} {points:<6.1f}\n"
+        
+        leaderboard_text += "```"
+        
+        embed.add_field(name="📊 Team Rankings", value=leaderboard_text, inline=False)
+        
+        start_team = start_idx + 1
+        end_team = end_idx
+        embed.set_footer(text=f"Showing teams {start_team}-{end_team} of {len(self.teams)} | Page {self.current_page + 1}/{self.total_pages}")
+        
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 class Leaderboards(commands.Cog):
@@ -248,28 +266,46 @@ class Leaderboards(commands.Cog):
                         'logo_url': team.get('logo_url')
                     })
             
-            # Generate first page
-            image_bytes = generate_leaderboard_image(teams, page=0)
-            
-            # Create file
-            file = discord.File(fp=image_bytes, filename='india_lb.jpg')
+            # Get teams for first page
+            start_idx = 0
+            end_idx = min(15, len(teams))
+            page_teams = teams[start_idx:end_idx]
             
             # Create embed
             embed = discord.Embed(
                 title="🇮🇳 VALM India Leaderboard",
-                description=f"Displaying top teams competing in India region",
+                description=f"Top teams competing in India region",
                 color=0xFF9933  # India flag orange color
             )
-            embed.set_image(url="attachment://india_lb.jpg")
+            
+            # Add teams to embed
+            leaderboard_text = "```\n"
+            leaderboard_text += f"{'Rank':<6} {'Team':<20} {'M':<4} {'W':<4} {'L':<4} {'WR%':<6} {'Pts':<6}\n"
+            leaderboard_text += "=" * 60 + "\n"
+            
+            for team in page_teams:
+                rank = team['rank']
+                name = team['team_name'][:18]  # Truncate long names
+                matches = team['total_matches']
+                wins = team['wins']
+                losses = team['losses']
+                win_rate = team['win_rate'] * 100
+                points = team['points']
+                
+                leaderboard_text += f"{rank:<6} {name:<20} {matches:<4} {wins:<4} {losses:<4} {win_rate:<6.1f} {points:<6.1f}\n"
+            
+            leaderboard_text += "```"
+            
+            embed.add_field(name="📊 Team Rankings", value=leaderboard_text, inline=False)
             
             # If more than 15 teams, add pagination
             if len(teams) > 15:
                 view = LeaderboardPagination(teams, current_page=0)
-                embed.set_footer(text=f"📊 Showing teams 1-{min(15, len(teams))} of {len(teams)} | Page 1/{(len(teams) + 14) // 15}")
-                await interaction.followup.send(embed=embed, file=file, view=view)
+                embed.set_footer(text=f"Showing teams 1-{min(15, len(teams))} of {len(teams)} | Page 1/{(len(teams) + 14) // 15}")
+                await interaction.followup.send(embed=embed, view=view)
             else:
-                embed.set_footer(text=f"📊 Showing all {len(teams)} team{'s' if len(teams) != 1 else ''}")
-                await interaction.followup.send(embed=embed, file=file)
+                embed.set_footer(text=f"Showing all {len(teams)} team{'s' if len(teams) != 1 else ''}")
+                await interaction.followup.send(embed=embed)
                 
         except Exception as e:
             await interaction.followup.send(f"❌ Error generating leaderboard: {e}", ephemeral=True)
