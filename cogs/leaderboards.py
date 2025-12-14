@@ -192,22 +192,27 @@ class LeaderboardPagination(discord.ui.View):
             color=0xFF9933  # India flag orange color
         )
         
-        # Add teams as separate fields for better mobile compatibility
+        # Add teams to embed with compact table format for mobile compatibility
+        leaderboard_text = "```"
+        leaderboard_text += f"{'#':<3}{'Team':<16}{'M':<3}{'W':<3}{'L':<3}{'Pts':<5}\n"
+        leaderboard_text += "─" * 35 + "\n"
+        
         for team in page_teams:
             rank = team['rank']
             # Clean team name: remove newlines, extra spaces, and truncate
             name = team['team_name'].replace('\n', ' ').replace('\r', ' ').strip()
             name = ' '.join(name.split())  # Remove extra spaces
+            name = name[:14]  # Truncate to fit mobile
             matches = team['total_matches']
             wins = team['wins']
             losses = team['losses']
-            win_rate = team['win_rate'] * 100
             points = team['points']
             
-            # Create a single line with all stats
-            stats_line = f"**{rank}.** {name}\n`Matches: {matches} | W: {wins} | L: {losses} | WR: {win_rate:.1f}% | Points: {points:.1f}`"
-            
-            embed.add_field(name="\u200b", value=stats_line, inline=False)
+            leaderboard_text += f"{rank:<3}{name:<16}{matches:<3}{wins:<3}{losses:<3}{points:<5.1f}\n"
+        
+        leaderboard_text += "```"
+        
+        embed.add_field(name="📊 Rankings", value=leaderboard_text, inline=False)
         
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -271,22 +276,27 @@ class Leaderboards(commands.Cog):
                 color=0xFF9933  # India flag orange color
             )
             
-            # Add teams as separate fields for better mobile compatibility
+            # Add teams to embed with compact table format for mobile compatibility
+            leaderboard_text = "```"
+            leaderboard_text += f"{'#':<3}{'Team':<16}{'M':<3}{'W':<3}{'L':<3}{'Pts':<5}\n"
+            leaderboard_text += "─" * 35 + "\n"
+            
             for team in page_teams:
                 rank = team['rank']
                 # Clean team name: remove newlines, extra spaces, and truncate
                 name = team['team_name'].replace('\n', ' ').replace('\r', ' ').strip()
                 name = ' '.join(name.split())  # Remove extra spaces
+                name = name[:14]  # Truncate to fit mobile
                 matches = team['total_matches']
                 wins = team['wins']
                 losses = team['losses']
-                win_rate = team['win_rate'] * 100
                 points = team['points']
                 
-                # Create a single line with all stats
-                stats_line = f"**{rank}.** {name}\n`Matches: {matches} | W: {wins} | L: {losses} | WR: {win_rate:.1f}% | Points: {points:.1f}`"
-                
-                embed.add_field(name="\u200b", value=stats_line, inline=False)
+                leaderboard_text += f"{rank:<3}{name:<16}{matches:<3}{wins:<3}{losses:<3}{points:<5.1f}\n"
+            
+            leaderboard_text += "```"
+            
+            embed.add_field(name="📊 Rankings", value=leaderboard_text, inline=False)
             
             # Always add pagination if there are teams
             if len(teams) > 15:
