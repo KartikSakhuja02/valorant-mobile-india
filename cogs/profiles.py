@@ -35,6 +35,18 @@ def cfg(key, default=None):
         return val
     return _load_config_json().get(key, default)
 
+def has_india_role(member: discord.Member) -> bool:
+    """Check if a member has the India role based on INDIA_ROLE_ID from environment"""
+    india_role_id = cfg('INDIA_ROLE_ID')
+    if not india_role_id:
+        return False
+    
+    try:
+        india_role_id = int(india_role_id)
+        return any(role.id == india_role_id for role in member.roles)
+    except (ValueError, AttributeError):
+        return False
+
 # View for region selection via DM
 class RegionSelectView(View):
     def __init__(self, user: discord.Member, guild: discord.Guild):
@@ -189,22 +201,50 @@ class IndiaToggleView(View):
             
             # Update India role
             india_role_id = cfg('INDIA_ROLE_ID')
+            role_updated = False
+            role_action = ""
+            
             if india_role_id:
-                member = self.guild.get_member(self.user.id)
-                if member:
-                    india_role = self.guild.get_role(int(india_role_id))
-                    if india_role:
-                        if is_india and india_role not in member.roles:
-                            await member.add_roles(india_role)
-                        elif not is_india and india_role in member.roles:
-                            await member.remove_roles(india_role)
+                try:
+                    member = self.guild.get_member(self.user.id)
+                    if not member:
+                        # Try fetching if not in cache
+                        member = await self.guild.fetch_member(self.user.id)
+                    
+                    if member:
+                        india_role = self.guild.get_role(int(india_role_id))
+                        if india_role:
+                            if is_india and india_role not in member.roles:
+                                await member.add_roles(india_role, reason="India status confirmed")
+                                role_updated = True
+                                role_action = "added"
+                                print(f"✅ Added India role to {member.name}")
+                            elif not is_india and india_role in member.roles:
+                                await member.remove_roles(india_role, reason="India status removed")
+                                role_updated = True
+                                role_action = "removed"
+                                print(f"✅ Removed India role from {member.name}")
+                            else:
+                                role_action = "already set correctly"
+                                print(f"ℹ️ India role already correct for {member.name}")
+                        else:
+                            print(f"⚠️ India role not found (ID: {india_role_id})")
+                    else:
+                        print(f"⚠️ Member not found: {self.user.id}")
+                except Exception as role_error:
+                    print(f"❌ Error updating role: {role_error}")
+            else:
+                print("⚠️ INDIA_ROLE_ID not configured in environment")
             
             status_text = "from India" if is_india else "not from India"
-            role_action = "added" if is_india else "removed"
-            await interaction.followup.send(
-                f"✅ India status updated! You are now marked as **{status_text}**.\n"
-                f"🇮🇳 India role {role_action}."
-            )
+            
+            response_msg = f"✅ India status updated! You are now marked as **{status_text}**."
+            if role_updated:
+                response_msg += f"\n🇮🇳 India role {role_action}."
+            elif india_role_id:
+                response_msg += f"\n🇮🇳 Role {role_action}."
+            
+            await interaction.followup.send(response_msg)
             
             # Disable buttons
             for item in self.children:
@@ -212,6 +252,9 @@ class IndiaToggleView(View):
             await interaction.message.edit(view=self)
             
         except Exception as e:
+            print(f"❌ Error updating India status: {e}")
+            import traceback
+            traceback.print_exc()
             await interaction.followup.send(f"❌ Error updating India status: {e}")
 
 # Main profile edit view
@@ -825,6 +868,21 @@ class Profiles(commands.Cog):
         stats = await db.get_player_stats(target_user.id)
         if not stats:
             stats = {}  # Use empty dict if no stats found
+        
+        # Sync India status from role if APAC region and user is a member
+        player_region = player_data.get('region', '').upper()
+        if player_region in ['AP', 'APAC', 'KR', 'JP'] and isinstance(target_user, discord.Member):
+            role_is_india = has_india_role(target_user)
+            db_is_india = player_data.get('is_india', False)
+            
+            # If role and database don't match, update database to match role
+            if role_is_india != db_is_india:
+                try:
+                    await db.update_player_india_status(target_user.id, role_is_india)
+                    player_data['is_india'] = role_is_india
+                    print(f"✅ Synced India status for {target_user.name}: {role_is_india} (from role)")
+                except Exception as e:
+                    print(f"⚠️ Failed to sync India status: {e}")
         
         # Build a Discord embed with profile fields
         try:
