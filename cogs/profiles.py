@@ -47,6 +47,34 @@ def has_india_role(member: discord.Member) -> bool:
     except (ValueError, AttributeError):
         return False
 
+def is_admin_or_mod(member: discord.Member) -> bool:
+    """Check if a member has admin or moderator role based on environment variables"""
+    if not isinstance(member, discord.Member):
+        return False
+    
+    admin_role_id = cfg('ADMIN_ROLE_ID')
+    moderator_role_id = cfg('MODERATOR_ROLE_ID')
+    
+    member_role_ids = [role.id for role in member.roles]
+    
+    # Check for admin role
+    if admin_role_id:
+        try:
+            if int(admin_role_id) in member_role_ids:
+                return True
+        except (ValueError, TypeError):
+            pass
+    
+    # Check for moderator role
+    if moderator_role_id:
+        try:
+            if int(moderator_role_id) in member_role_ids:
+                return True
+        except (ValueError, TypeError):
+            pass
+    
+    return False
+
 # View for region selection via DM
 class RegionSelectView(View):
     def __init__(self, user: discord.Member, guild: discord.Guild):
@@ -274,21 +302,8 @@ class ProfileEditView(View):
             self.remove_item(self.india_status_button)
     
     def is_admin(self, member: discord.Member) -> bool:
-        """Check if user has admin/staff/moderator role"""
-        admin_role_id = cfg('ROLE_ADMIN_ID')
-        staff_role_id = cfg('ROLE_STAFF_ID')
-        mod_role_id = cfg('ROLE_MODERATOR_ID')
-        
-        member_role_ids = [role.id for role in member.roles]
-        
-        if admin_role_id and int(admin_role_id) in member_role_ids:
-            return True
-        if staff_role_id and int(staff_role_id) in member_role_ids:
-            return True
-        if mod_role_id and int(mod_role_id) in member_role_ids:
-            return True
-        
-        return False
+        """Check if user has admin or moderator role"""
+        return is_admin_or_mod(member)
     
     @discord.ui.button(label="Edit IGN", style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_ign_button(self, interaction: discord.Interaction, button: Button):
@@ -922,29 +937,16 @@ class Profiles(commands.Cog):
                 india_status = "🇮🇳 Yes" if is_india else "❌ No"
                 profile_embed.add_field(name="From India?", value=india_status, inline=True)
 
-            # Show edit buttons if viewing own profile OR if admin viewing any profile
+            # Show edit buttons if viewing own profile OR if admin/moderator viewing any profile
             is_own_profile = target_user.id == interaction.user.id
             
-            # Check if user is admin
-            is_admin = False
-            if isinstance(interaction.user, discord.Member):
-                admin_role_id = cfg('ROLE_ADMIN_ID')
-                staff_role_id = cfg('ROLE_STAFF_ID')
-                mod_role_id = cfg('ROLE_MODERATOR_ID')
-                
-                member_role_ids = [role.id for role in interaction.user.roles]
-                
-                if admin_role_id and int(admin_role_id) in member_role_ids:
-                    is_admin = True
-                elif staff_role_id and int(staff_role_id) in member_role_ids:
-                    is_admin = True
-                elif mod_role_id and int(mod_role_id) in member_role_ids:
-                    is_admin = True
+            # Check if user is admin or moderator
+            is_admin = is_admin_or_mod(interaction.user) if isinstance(interaction.user, discord.Member) else False
             
             if is_own_profile or is_admin:
                 view = ProfileEditView(player_data, target_user, self.bot, interaction.guild, interaction.user)
                 if is_admin and not is_own_profile:
-                    profile_embed.set_footer(text="🛡️ Admin Mode: You can edit this profile to help the user")
+                    profile_embed.set_footer(text="🛡️ Admin/Moderator Mode: You can edit this profile")
                 await interaction.followup.send(embed=profile_embed, view=view)
             else:
                 await interaction.followup.send(embed=profile_embed)
