@@ -1669,10 +1669,9 @@ class OCRScanner(commands.Cog):
             except Exception as e:
                 print(f"Error pre-fetching player stats: {e}")
             
-            # Build player lines with points
+            # Build player lines with points (agent detection disabled)
             def format_player_line(p, idx):
                 ign = p.get('ign', 'UNKNOWN')
-                agent = p.get('agent', 'Unknown')
                 k = p.get('kills', '?')
                 d = p.get('deaths', '?')
                 a = p.get('assists', '?')
@@ -1715,14 +1714,14 @@ class OCRScanner(commands.Cog):
                             points_diff = new_points - old_points
                             diff_str = f"+{points_diff}" if points_diff >= 0 else str(points_diff)
                             
-                            return f"{reg_symbol} **{ign}** ({agent}) • `{kda}` • {new_points} pts `({diff_str})`"
+                            return f"{reg_symbol} **{ign}** • `{kda}` • {new_points} pts `({diff_str})`"
                     except Exception as e:
                         print(f"Error calculating points for {ign}: {e}")
                 
                 if is_registered:
-                    return f"{reg_symbol} **{ign}** ({agent}) • `{kda}`"
+                    return f"{reg_symbol} **{ign}** • `{kda}`"
                 else:
-                    return f"{reg_symbol} {ign} ({agent}) • `{kda}`"
+                    return f"{reg_symbol} {ign} • `{kda}`"
             
             # Sort teams by performance (kills * 2 + assists) - best players first
             def player_score(p):
@@ -2025,17 +2024,6 @@ class OCRScanner(commands.Cog):
             # Add fallback notice if used
             if used_fallback:
                 description += f"\n⚠️ Using local OCR (Gemini unavailable)"
-            
-            # Add agent detection info
-            vision_count = sum(1 for p in players[:10] if p.get('agent_source') == 'Gemini Vision')
-            unknown_count = sum(1 for p in players[:10] if p.get('agent', 'Unknown') == 'Unknown')
-            
-            if vision_count > 0:
-                avg_confidence = sum(p.get('agent_confidence', 0) for p in players[:10] if p.get('agent', 'Unknown') != 'Unknown') / max(1, (10 - unknown_count))
-                agent_detection_info = f"\n🎯 Agent Detection: {vision_count} detected (Vision AI, {avg_confidence*100:.0f}% confidence)"
-                if unknown_count > 0:
-                    agent_detection_info += f" • {unknown_count} unknown"
-                description += agent_detection_info
             
             emb = discord.Embed(
                 description=description,
