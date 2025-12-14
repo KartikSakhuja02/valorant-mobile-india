@@ -199,7 +199,10 @@ class LeaderboardPagination(discord.ui.View):
         
         for team in page_teams:
             rank = team['rank']
-            name = team['team_name'][:18]  # Truncate long names
+            # Clean team name: remove newlines, extra spaces, and truncate
+            name = team['team_name'].replace('\n', ' ').replace('\r', ' ').strip()
+            name = ' '.join(name.split())  # Remove extra spaces
+            name = name[:18]  # Truncate long names
             matches = team['total_matches']
             wins = team['wins']
             losses = team['losses']
@@ -285,7 +288,10 @@ class Leaderboards(commands.Cog):
             
             for team in page_teams:
                 rank = team['rank']
-                name = team['team_name'][:18]  # Truncate long names
+                # Clean team name: remove newlines, extra spaces, and truncate
+                name = team['team_name'].replace('\n', ' ').replace('\r', ' ').strip()
+                name = ' '.join(name.split())  # Remove extra spaces
+                name = name[:18]  # Truncate long names
                 matches = team['total_matches']
                 wins = team['wins']
                 losses = team['losses']
