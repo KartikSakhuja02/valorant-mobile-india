@@ -1024,17 +1024,6 @@ class OCRScanner(commands.Cog):
             print(f"⚠️ Failed to defer interaction: {e}")
             return
         
-        # Admin check
-        if not interaction.guild:
-            await interaction.followup.send("❌ This command can only be used in a server!", ephemeral=True)
-            return
-        
-        if not interaction.user.guild_permissions.administrator:
-            user_roles = [role.name.lower() for role in interaction.user.roles]
-            if not any(role in user_roles for role in ['admin', 'staff', 'moderator', 'mod']):
-                await interaction.followup.send("❌ You need Admin or Staff role to scan scoreboards!", ephemeral=True)
-                return
-        
         if not GEMINI_API_KEY:
             await interaction.followup.send("❌ No `GEMINI_API_KEY` set. Please set GEMINI_API_KEY in environment variables or your .env file.", ephemeral=True)
             return
