@@ -187,11 +187,15 @@ class LeaderboardPagination(discord.ui.View):
         
         # Create embed
         embed = discord.Embed(
-            title="VALM India Leaderboard",
-            color=0x5865F2
+            title="🇮🇳 VALM India Leaderboard",
+            description=f"Displaying top teams competing in India region",
+            color=0xFF9933  # India flag orange color
         )
         embed.set_image(url=f"attachment://india_lb_page_{self.current_page + 1}.jpg")
-        embed.set_footer(text=f"Showing teams {self.current_page * 15 + 1}-{min((self.current_page + 1) * 15, len(self.teams))} of {len(self.teams)}")
+        
+        start_team = self.current_page * 15 + 1
+        end_team = min((self.current_page + 1) * 15, len(self.teams))
+        embed.set_footer(text=f"📊 Showing teams {start_team}-{end_team} of {len(self.teams)} | Page {self.current_page + 1}/{self.total_pages}")
         
         await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
@@ -208,8 +212,8 @@ class Leaderboards(commands.Cog):
         await interaction.response.defer()
 
         try:
-            # Get India leaderboard data from database
-            teams = await db.get_team_leaderboard('india')
+            # Get India leaderboard data from database (fetch ALL teams, no limit)
+            teams = await db.get_team_leaderboard('india', limit=None)
             
             if not teams:
                 await interaction.followup.send("❌ No teams found in the India leaderboard.", ephemeral=True)
@@ -223,23 +227,26 @@ class Leaderboards(commands.Cog):
             
             # Create embed
             embed = discord.Embed(
-                title="VALM India Leaderboard",
-                color=0x5865F2
+                title="🇮🇳 VALM India Leaderboard",
+                description=f"Displaying top teams competing in India region",
+                color=0xFF9933  # India flag orange color
             )
             embed.set_image(url="attachment://india_lb.jpg")
             
             # If more than 15 teams, add pagination
             if len(teams) > 15:
                 view = LeaderboardPagination(teams, current_page=0)
-                embed.set_footer(text=f"Showing teams 1-{min(15, len(teams))} of {len(teams)}")
+                embed.set_footer(text=f"📊 Showing teams 1-{min(15, len(teams))} of {len(teams)} | Page 1/{(len(teams) + 14) // 15}")
                 await interaction.followup.send(embed=embed, file=file, view=view)
             else:
-                embed.set_footer(text=f"Showing all {len(teams)} teams")
+                embed.set_footer(text=f"📊 Showing all {len(teams)} team{'s' if len(teams) != 1 else ''}")
                 await interaction.followup.send(embed=embed, file=file)
                 
         except Exception as e:
             await interaction.followup.send(f"❌ Error generating leaderboard: {e}", ephemeral=True)
             print(f"Leaderboard error: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 async def setup(bot):

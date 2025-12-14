@@ -904,21 +904,30 @@ async def update_team_leaderboard_ranks(leaderboard_type: str = 'global'):
             WHERE lb.team_id = ranked.team_id
         """)
 
-async def get_team_leaderboard(leaderboard_type: str = 'global', limit: int = 15):
-    """Get team leaderboard data for a specific region."""
+async def get_team_leaderboard(leaderboard_type: str = 'global', limit: int = None):
+    """Get team leaderboard data for a specific region. If limit is None, fetch all teams."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Update ranks first
         await update_team_leaderboard_ranks(leaderboard_type)
         
         # Fetch leaderboard
-        teams = await conn.fetch(f"""
-            SELECT rank, team_name, team_tag, region, total_matches, wins, losses, win_rate,
-                   total_rounds_won, total_rounds_lost, round_diff, points, logo_url
-            FROM team_leaderboard_{leaderboard_type}
-            ORDER BY rank ASC
-            LIMIT $1
-        """, limit)
+        if limit:
+            teams = await conn.fetch(f"""
+                SELECT rank, team_name, team_tag, region, total_matches, wins, losses, win_rate,
+                       total_rounds_won, total_rounds_lost, round_diff, points, logo_url
+                FROM team_leaderboard_{leaderboard_type}
+                ORDER BY rank ASC
+                LIMIT $1
+            """, limit)
+        else:
+            # Fetch all teams (no limit)
+            teams = await conn.fetch(f"""
+                SELECT rank, team_name, team_tag, region, total_matches, wins, losses, win_rate,
+                       total_rounds_won, total_rounds_lost, round_diff, points, logo_url
+                FROM team_leaderboard_{leaderboard_type}
+                ORDER BY rank ASC
+            """)
         
         return [dict(t) for t in teams]
 
