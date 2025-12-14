@@ -5,6 +5,7 @@ from pathlib import Path
 import io
 from PIL import Image, ImageDraw, ImageFont
 from services import db
+import os
 
 
 # Font settings
@@ -246,6 +247,67 @@ class Leaderboards(commands.Cog):
             await interaction.followup.send(f"❌ Error generating leaderboard: {e}", ephemeral=True)
             print(f"Leaderboard error: {e}")
             import traceback
+            traceback.print_exc()
+
+    @app_commands.command(name="sync_teams_lb", description="[Admin] Sync all existing teams to the leaderboard")
+    @app_commands.guild_only()
+    async def sync_teams_lb(self, interaction: discord.Interaction):
+        """Sync all existing teams to the leaderboard tables."""
+        # Check if user is admin
+        admin_role_id = int(os.getenv('ADMIN_ROLE_ID', 0))
+        if not admin_role_id or admin_role_id not in [role.id for role in interaction.user.roles]:
+            await interaction.response.send_message("❌ You need administrator permissions to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Get all teams
+            all_teams = await db.get_all_teams()
+            
+            synced_count = 0
+            error_count = 0
+            
+            for team in all_teams:
+                team_id = team['id']  # teams table uses 'id' not 'team_id'
+                team_name = team['team_name']
+                team_tag = team['team_tag']
+                region = team['region']
+                logo_url = team.get('logo_url')
+                
+                # Check if team is from India region
+                is_india = region and region.lower() == 'india'
+                
+                try:
+                    # Update team leaderboard (this will create entry if it doesn't exist)
+                    await db.update_team_leaderboard(
+                        team_id=team_id,
+                        team_name=team_name,
+                        team_tag=team_tag,
+                        region=region,
+                        logo_url=logo_url,
+                        is_india=is_india
+                    )
+                    synced_count += 1
+                except Exception as e:
+                    print(f"Error syncing team {team_tag}: {e}")
+                    error_count += 1
+            
+            embed = discord.Embed(
+                title="✅ Teams Synced to Leaderboard",
+                description=f"Successfully synced teams to the leaderboard tables.",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Total Teams", value=str(len(all_teams)))
+            embed.add_field(name="Synced", value=str(synced_count))
+            if error_count > 0:
+                embed.add_field(name="Errors", value=str(error_count))
+                embed.color = discord.Color.orange()
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error syncing teams: {str(e)}", ephemeral=True)
             traceback.print_exc()
 
 
