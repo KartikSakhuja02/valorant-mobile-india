@@ -216,9 +216,31 @@ class Leaderboards(commands.Cog):
             # Get India leaderboard data from database (fetch ALL teams, no limit)
             teams = await db.get_team_leaderboard('india', limit=None)
             
+            # If leaderboard is empty, fetch teams from teams table directly
             if not teams:
-                await interaction.followup.send("❌ No teams found in the India leaderboard.", ephemeral=True)
-                return
+                all_teams = await db.get_all_teams(region='india')
+                if not all_teams:
+                    await interaction.followup.send("❌ No teams registered in India region.", ephemeral=True)
+                    return
+                
+                # Convert teams table format to leaderboard format
+                teams = []
+                for idx, team in enumerate(all_teams, start=1):
+                    teams.append({
+                        'rank': idx,
+                        'team_name': team['team_name'],
+                        'team_tag': team['team_tag'],
+                        'region': team['region'],
+                        'total_matches': 0,
+                        'wins': 0,
+                        'losses': 0,
+                        'win_rate': 0.0,
+                        'total_rounds_won': 0,
+                        'total_rounds_lost': 0,
+                        'round_diff': 0,
+                        'points': 0.0,
+                        'logo_url': team.get('logo_url')
+                    })
             
             # Generate first page
             image_bytes = generate_leaderboard_image(teams, page=0)
