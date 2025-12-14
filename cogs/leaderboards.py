@@ -234,8 +234,8 @@ class Leaderboards(commands.Cog):
                 for idx, team in enumerate(all_teams, start=1):
                     teams.append({
                         'rank': idx,
-                        'team_name': team['team_name'],
-                        'team_tag': team['team_tag'],
+                        'team_name': team['name'],
+                        'team_tag': team['tag'],
                         'region': team['region'],
                         'total_matches': 0,
                         'wins': 0,
