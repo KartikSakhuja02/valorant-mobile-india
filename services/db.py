@@ -1009,10 +1009,11 @@ async def update_player_leaderboard(player_id: int, ign: str, region: str):
         # Update player leaderboard
         await conn.execute("""
             INSERT INTO player_leaderboard 
-            (player_id, ign, region, kills, deaths, assists, matches_played, wins, losses, mvps, points)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            (player_id, discord_id, ign, region, kills, deaths, assists, matches_played, wins, losses, mvps, points)
+            VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (player_id) 
             DO UPDATE SET 
+                discord_id = $1,
                 ign = $2,
                 region = $3,
                 kills = $4,
