@@ -1015,14 +1015,26 @@ class Profiles(commands.Cog):
             if isinstance(members_data, str):
                 members_data = json.loads(members_data)
             
-            # Build roster list with player stats
+            # Build roster list with player stats from database
             roster_lines = []
             for member in members_data:
                 if isinstance(member, dict):
                     ign = member.get('ign', 'Unknown')
-                    kills = member.get('kills', 0)
-                    deaths = member.get('deaths', 0)
-                    kd = f"{kills / deaths:.2f}" if deaths > 0 else f"{kills}"
+                    discord_id = member.get('discord_id')
+                    
+                    # Try to get actual player stats from database
+                    kills = 0
+                    deaths = 0
+                    if discord_id:
+                        try:
+                            player_stats = await db.get_player_stats(discord_id)
+                            if player_stats:
+                                kills = player_stats.get('kills', 0)
+                                deaths = player_stats.get('deaths', 0)
+                        except:
+                            pass
+                    
+                    kd = f"{kills / deaths:.2f}" if deaths > 0 else f"{kills}" if kills > 0 else "0.00"
                     roster_lines.append(f"• **{ign}** - {kills}K / {deaths}D (KD: {kd})")
             
             roster_str = "\n".join(roster_lines) if roster_lines else "No members found."
@@ -1106,13 +1118,14 @@ class Profiles(commands.Cog):
                     if recent_matches and len(recent_matches) > 0:
                         match_lines = []
                         for match in recent_matches[:5]:
-                            opponent_name = match.get('opponent_name', 'Unknown')
+                            opponent_name = match.get('opponent_name', 'Randoms')
                             score_for = match.get('score_for', 0)
                             score_against = match.get('score_against', 0)
                             won = match.get('won', False)
+                            map_name = match.get('map', 'Unknown Map')
                             
-                            result_icon = "✅" if won else "❌"
-                            match_lines.append(f"{result_icon} vs **{opponent_name}** - {score_for}:{score_against}")
+                            result_text = "Win" if won else "Loss"
+                            match_lines.append(f"**{target_team['tag']} {result_text}** vs {opponent_name} ({map_name})")
                         
                         recent_matches_str = "\n".join(match_lines)
             except Exception as e:
