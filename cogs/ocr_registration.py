@@ -7,13 +7,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import json
-import aiohttp
-import base64
 from pathlib import Path
-from io import BytesIO
-from PIL import Image
 import os
 from services import db
+from services.ocr_service import ocr_service
 
 # load .env optionally
 try:
@@ -195,9 +192,6 @@ class OCRRegistration(commands.Cog):
         
         # Track users waiting for screenshot
         self.pending_registrations = {}  # {user_id: True}
-        
-        # Load config for Gemini API
-        self.gemini_api_key = cfg('GEMINI_API_KEY')
     
     @app_commands.command(name="register_ocr", description="Register for the tournament using OCR (automatic)")
     async def register_ocr(self, interaction: discord.Interaction):
@@ -319,20 +313,18 @@ class OCRRegistration(commands.Cog):
         await message.channel.send("🔄 Reading your profile screenshot...")
         
         try:
-            # Download image
-            image_bytes = await attachment.read()
+            # Use the OCR service to process the screenshot
+            success, ign, player_id = await ocr_service.process_screenshot(message.attachments[0])
             
-            # Run OCR
-            ign, player_id = await self.extract_profile_info(image_bytes)
-            
-            if not ign or not player_id:
+            if not success:
                 await message.channel.send(
-                    "❌ **Could not read your profile!**\n\n"
-                    "Please make sure:\n"
-                    "✅ Your IGN is clearly visible\n"
-                    "✅ Your Player ID is visible\n"
-                    "✅ The image is not blurry\n\n"
-                    "Send another screenshot:"
+                    f"❌ **Could not read your profile!**\n\n"
+                    f"Error: {ign}\n\n"
+                    f"Please make sure:\n"
+                    f"✅ Your IGN is clearly visible\n"
+                    f"✅ Your Player ID is visible\n"
+                    f"✅ The image is not blurry\n\n"
+                    f"Send another screenshot:"
                 )
                 return
             
@@ -354,107 +346,6 @@ class OCRRegistration(commands.Cog):
                 f"Error: `{str(e)}`\n\n"
                 f"Please try again with a clearer screenshot."
             )
-    
-    async def extract_profile_info(self, image_bytes: bytes) -> tuple[str, str]:
-        """Extract IGN and Player ID from profile screenshot using Gemini OCR"""
-        
-        if not self.gemini_api_key:
-            return None, None
-        
-        # Convert image to base64
-        img = Image.open(BytesIO(image_bytes))
-        
-        # Resize if too large
-        max_size = 1600
-        if max(img.size) > max_size:
-            ratio = max_size / max(img.size)
-            new_size = tuple(int(dim * ratio) for dim in img.size)
-            img = img.resize(new_size, Image.LANCZOS)
-        
-        # Convert to base64
-        buffer = BytesIO()
-        img.save(buffer, format='PNG')
-        img_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
-        
-        # Gemini prompt for profile extraction
-        prompt = """
-You are reading a VALORANT Mobile player profile screenshot.
-
-Extract the following information:
-1. IGN (In-Game Name) - the player's username
-2. Player ID - the numeric ID (format: 1234 or #1234)
-
-Return RAW JSON ONLY (no markdown):
-{
-  "ign": "PlayerName",
-  "id": "1234567"
-}
-
-Rules:
-- Find the player's IGN (usually displayed prominently)
-- Find the Player ID (numbers, may have # prefix)
-- Remove # from ID if present
-- If IGN not found, set to null
-- If ID not found, set to null
-"""
-        
-        # Try multiple Gemini models
-        models = [
-            ("v1beta", "gemini-2.0-flash-exp"),
-            ("v1beta", "gemini-exp-1206"),
-            ("v1beta", "gemini-1.5-pro"),
-        ]
-        
-        for version, model in models:
-            try:
-                url = f"https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent"
-                
-                payload = {
-                    "contents": [{
-                        "parts": [
-                            {"text": prompt},
-                            {
-                                "inline_data": {
-                                    "mime_type": "image/png",
-                                    "data": img_b64
-                                }
-                            }
-                        ]
-                    }]
-                }
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        url,
-                        params={"key": self.gemini_api_key},
-                        json=payload,
-                        headers={"Content-Type": "application/json"}
-                    ) as resp:
-                        if resp.status != 200:
-                            continue
-                        
-                        data = await resp.json()
-                        text_response = data['candidates'][0]['content']['parts'][0]['text']
-                        
-                        # Parse JSON response
-                        import re
-                        json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
-                        if json_match:
-                            result = json.loads(json_match.group())
-                            ign = result.get('ign')
-                            player_id = result.get('id')
-                            
-                            # Clean up ID (remove # if present)
-                            if player_id:
-                                player_id = str(player_id).replace('#', '').strip()
-                            
-                            return ign, player_id
-            
-            except Exception as e:
-                print(f"OCR error with {model}: {e}")
-                continue
-        
-        return None, None
     
     async def register_player_ocr(self, discord_id: int, ign: str, player_id: str, region: str) -> tuple[bool, str]:
         """Register a player with OCR-extracted data using PostgreSQL"""
