@@ -407,7 +407,7 @@ async def save_match_results(match_data: dict):
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 """, match['id'], player['discord_id'], agent,
                      player['kills'], player['deaths'], player['assists'],
-                     player['score'], player['mvp'], player['team'])
+                     player['score'], player['mvp'], str(player['team']))
                 
                 # Update player's overall stats
                 await conn.execute("""
