@@ -1897,13 +1897,13 @@ class OCRScanner(commands.Cog):
                         # Update Team A leaderboard
                         team_a_id = match_data.get('team_a_id')
                         if team_a_id:
-                            team_a = await db.get_team_by_id(team_a_id)
-                            if team_a:
+                            team_a_db = await db.get_team_by_id(team_a_id)
+                            if team_a_db:
                                 # Check if team is India-based (check captain's role or region)
-                                is_india = team_a['region'].lower() == 'india'
+                                is_india = team_a_db['region'].lower() == 'india'
                                 if not is_india and interaction.guild:
                                     try:
-                                        captain = await interaction.guild.fetch_member(team_a['captain_id'])
+                                        captain = await interaction.guild.fetch_member(team_a_db['captain_id'])
                                         if captain:
                                             india_role = discord.utils.get(captain.roles, name="India")
                                             is_india = india_role is not None
@@ -1912,24 +1912,24 @@ class OCRScanner(commands.Cog):
                                 
                                 await db.update_team_leaderboard(
                                     team_a_id,
-                                    team_a['name'],
-                                    team_a['tag'],
-                                    team_a['region'],
-                                    team_a.get('logo_url'),
+                                    team_a_db['name'],
+                                    team_a_db['tag'],
+                                    team_a_db['region'],
+                                    team_a_db.get('logo_url'),
                                     is_india
                                 )
-                                print(f"  ✅ Updated leaderboard for {team_a['name']}")
+                                print(f"  ✅ Updated leaderboard for {team_a_db['name']}")
                         
                         # Update Team B leaderboard
                         team_b_id = match_data.get('team_b_id')
                         if team_b_id:
-                            team_b = await db.get_team_by_id(team_b_id)
-                            if team_b:
+                            team_b_db = await db.get_team_by_id(team_b_id)
+                            if team_b_db:
                                 # Check if team is India-based
-                                is_india = team_b['region'].lower() == 'india'
+                                is_india = team_b_db['region'].lower() == 'india'
                                 if not is_india and interaction.guild:
                                     try:
-                                        captain = await interaction.guild.fetch_member(team_b['captain_id'])
+                                        captain = await interaction.guild.fetch_member(team_b_db['captain_id'])
                                         if captain:
                                             india_role = discord.utils.get(captain.roles, name="India")
                                             is_india = india_role is not None
@@ -1938,13 +1938,13 @@ class OCRScanner(commands.Cog):
                                 
                                 await db.update_team_leaderboard(
                                     team_b_id,
-                                    team_b['name'],
-                                    team_b['tag'],
-                                    team_b['region'],
-                                    team_b.get('logo_url'),
+                                    team_b_db['name'],
+                                    team_b_db['tag'],
+                                    team_b_db['region'],
+                                    team_b_db.get('logo_url'),
                                     is_india
                                 )
-                                print(f"  ✅ Updated leaderboard for {team_b['name']}")
+                                print(f"  ✅ Updated leaderboard for {team_b_db['name']}")
                         
                         # Update all team leaderboard ranks
                         for lb_type in ['global', 'apac', 'emea', 'americas', 'india']:
