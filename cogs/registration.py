@@ -1081,17 +1081,10 @@ class Registration(commands.Cog):
         return max(0, score)  # Never return negative score
         
     async def update_nickname(self, member: discord.Member, ign: str, stats: dict):
-        """Update member's nickname to show points and IGN"""
+        """Update member's nickname to their IGN"""
         try:
-            points = self.calculate_player_score(stats)
-            new_nickname = f"[{int(points)}] {ign}"
-            
             # Discord nickname limit is 32 characters
-            if len(new_nickname) > 32:
-                # Truncate IGN if needed
-                max_ign_length = 32 - len(f"[{int(points)}] ")
-                truncated_ign = ign[:max_ign_length]
-                new_nickname = f"[{int(points)}] {truncated_ign}"
+            new_nickname = ign[:32] if len(ign) > 32 else ign
             
             await member.edit(nick=new_nickname)
             return True
