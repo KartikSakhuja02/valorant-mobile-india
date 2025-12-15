@@ -492,6 +492,35 @@ class ProfileEditView(View):
 class Profiles(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.data_dir = Path(__file__).parent.parent / "data"
+        self.scoring_config = self.load_scoring_config()
+        
+    def load_scoring_config(self):
+        """Load scoring configuration from JSON file"""
+        config_file = self.data_dir / "scoring_config.json"
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading scoring config: {e}")
+            # Return default config
+            return {
+                "player_scoring": {
+                    "weights": {
+                        "kill_points": 1.0,
+                        "assist_points": 0.5,
+                        "death_penalty": 0.5,
+                        "win_points": 10.0,
+                        "participation_points": 1.0
+                    },
+                    "bonus_multipliers": {
+                        "kd_ratio_above_1.5": 1.1,
+                        "kd_ratio_above_2.0": 1.2,
+                        "win_rate_above_60": 1.05,
+                        "win_rate_above_75": 1.15
+                    }
+                }
+            }
         
     def calculate_kdr(self, kills: int, deaths: int) -> float:
         """Calculate K/D ratio"""
@@ -502,14 +531,51 @@ class Profiles(commands.Cog):
         return (wins / matches * 100) if matches > 0 else 0
 
     def calculate_points(self, stats: dict) -> int:
-        """Calculate total points"""
-        kill_points = stats.get('kills', 0) * 100
-        death_penalty = stats.get('deaths', 0) * -50
-        win_points = stats.get('wins', 0) * 500
-        mvp_points = stats.get('mvps', 0) * 200
-        participation = stats.get('matches_played', 0) * 100
+        """Calculate player leaderboard score based on scoring config (same as registration.py)"""
+        weights = self.scoring_config["player_scoring"]["weights"]
+        bonuses = self.scoring_config["player_scoring"]["bonus_multipliers"]
+
+        kills = stats.get("kills", 0)
+        deaths = stats.get("deaths", 0)
+        assists = stats.get("assists", 0)
+        wins = stats.get("wins", 0)
+        matches = stats.get("matches_played", 0)
         
-        return kill_points + death_penalty + win_points + mvp_points + participation
+        # Check minimum matches requirement
+        min_matches = self.scoring_config.get("leaderboard_settings", {}).get("min_matches_for_ranking", 1)
+        if matches < min_matches:
+            return 0
+        
+        # Base score calculation
+        score = (
+            kills * weights["kill_points"] +
+            assists * weights["assist_points"] -
+            deaths * weights["death_penalty"] +
+            wins * weights["win_points"] +
+            matches * weights["participation_points"]
+        )
+        
+        # Apply bonus multipliers
+        multiplier = 1.0
+        
+        # K/D ratio bonuses
+        if deaths > 0:
+            kd_ratio = kills / deaths
+            if kd_ratio >= 2.0:
+                multiplier *= bonuses.get("kd_ratio_above_2.0", 1.2)
+            elif kd_ratio >= 1.5:
+                multiplier *= bonuses.get("kd_ratio_above_1.5", 1.1)
+        
+        # Win rate bonuses
+        if matches > 0:
+            win_rate = (wins / matches) * 100
+            if win_rate >= 75:
+                multiplier *= bonuses.get("win_rate_above_75", 1.15)
+            elif win_rate >= 60:
+                multiplier *= bonuses.get("win_rate_above_60", 1.05)
+        
+        score *= multiplier
+        return max(0, int(score))  # Never return negative score, always return int
 
     async def create_profile_image(self, member: discord.Member, player_data: dict, stats: dict):
         """Create and save profile image"""
