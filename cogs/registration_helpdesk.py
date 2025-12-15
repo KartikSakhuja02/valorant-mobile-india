@@ -92,8 +92,10 @@ class HelpdeskView(discord.ui.View):
         
         print(f"🔍 Looking for staff with role IDs: Admin={admin_role_id}, Staff={staff_role_id}, Mod={mod_role_id}")
         
-        # Add all staff members to thread
+        # Add all staff members to thread and track online ones
         staff_added = 0
+        online_staff = []
+        
         for member in interaction.guild.members:
             # Skip the user who created the thread (already added)
             if member.id == interaction.user.id:
@@ -123,17 +125,18 @@ class HelpdeskView(discord.ui.View):
                     await thread.add_user(member)
                     staff_added += 1
                     print(f"  ✅ Added {member.name} to thread")
+                    
+                    # Check if member is online
+                    if member.status != discord.Status.offline:
+                        online_staff.append(member)
                 except Exception as e:
                     print(f"  ❌ Failed to add {member.name}: {e}")
         
         print(f"✓ Added {staff_added} staff members to thread")
-                
-                # Check if member is online
-        if member.status != discord.Status.offline:
-                    online_staff.append(member)
         
         # Build role mention string for ghost ping (staff only)
         role_mentions = []
+        staff_role = interaction.guild.get_role(staff_role_id) if staff_role_id else None
         if staff_role:
             role_mentions.append(staff_role.mention)
         

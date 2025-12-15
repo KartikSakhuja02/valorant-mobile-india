@@ -409,20 +409,33 @@ async def save_match_results(match_data: dict):
                      player['kills'], player['deaths'], player['assists'],
                      player['score'], player['mvp'], str(player['team']))
                 
-                # Update player's overall stats
-                await conn.execute("""
-                    UPDATE player_stats 
-                    SET kills = kills + $2,
-                        deaths = deaths + $3,
-                        assists = assists + $4,
-                        matches_played = matches_played + 1,
-                        wins = wins + $5,
-                        losses = losses + $6,
-                        mvps = mvps + $7
-                    WHERE player_id = $1 AND tournament_id = 1
-                """, player['discord_id'], player['kills'], player['deaths'],
-                     player['assists'], 1 if player['won'] else 0,
-                     0 if player['won'] else 1, 1 if player['mvp'] else 0)
+                # Update player's overall stats (only if won status is known)
+                if player.get('won') is not None:
+                    await conn.execute("""
+                        UPDATE player_stats 
+                        SET kills = kills + $2,
+                            deaths = deaths + $3,
+                            assists = assists + $4,
+                            matches_played = matches_played + 1,
+                            wins = wins + $5,
+                            losses = losses + $6,
+                            mvps = mvps + $7
+                        WHERE player_id = $1 AND tournament_id = 1
+                    """, player['discord_id'], player['kills'], player['deaths'],
+                         player['assists'], 1 if player['won'] else 0,
+                         0 if player['won'] else 1, 1 if player['mvp'] else 0)
+                else:
+                    # Update stats without win/loss if we don't know the outcome
+                    await conn.execute("""
+                        UPDATE player_stats 
+                        SET kills = kills + $2,
+                            deaths = deaths + $3,
+                            assists = assists + $4,
+                            matches_played = matches_played + 1,
+                            mvps = mvps + $5
+                        WHERE player_id = $1 AND tournament_id = 1
+                    """, player['discord_id'], player['kills'], player['deaths'],
+                         player['assists'], 1 if player.get('mvp') else 0)
             
             return {
                 'match_id': match_id,
