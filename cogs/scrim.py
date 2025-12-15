@@ -2524,16 +2524,16 @@ class Scrim(commands.Cog):
         await captain_1.send(embed=embed)
         await captain_2.send(embed=embed)
         
-        # Send to LFS channel
-        lfs_channel_id = os.getenv('LFS_CHANNEL_ID')
-        if lfs_channel_id:
-            lfs_channel = self.bot.get_channel(int(lfs_channel_id))
-            if lfs_channel:
-                await lfs_channel.send(
-                    f"🎮 **Scrim Match Ready!**\n"
-                    f"**{match_data['team_a_name']}** vs **{match_data['team_b_name']}**",
-                    embed=embed
-                )
+        # Don't send to LFS channel (removed per user request)
+        # lfs_channel_id = os.getenv('LFS_CHANNEL_ID')
+        # if lfs_channel_id:
+        #     lfs_channel = self.bot.get_channel(int(lfs_channel_id))
+        #     if lfs_channel:
+        #         await lfs_channel.send(
+        #             f"🎮 **Scrim Match Ready!**\n"
+        #             f"**{match_data['team_a_name']}** vs **{match_data['team_b_name']}**",
+        #             embed=embed
+        #         )
         
         # Send to bot logs channel
         log_channel_id = os.getenv('LOG_CHANNEL_ID')
@@ -2946,11 +2946,18 @@ class Scrim(commands.Cog):
             try:
                 logs_channel = self.bot.get_channel(int(logs_channel_id))
                 if logs_channel:
+                    # Create detailed embed with match info and cancellation reasons
                     embed = discord.Embed(
                         title="❌ Scrim Cancelled",
                         description=f"**Match ID:** {match_id}\n**Type:** {match['match_type'].upper()}\n**Region:** {match['region'].upper()}",
                         color=0xFF0000,
                         timestamp=datetime.now()
+                    )
+                    
+                    embed.add_field(
+                        name="🏆 Match Details",
+                        value=f"**{team_1_name}** vs **{team_2_name}",
+                        inline=False
                     )
                     
                     embed.add_field(
@@ -2966,8 +2973,8 @@ class Scrim(commands.Cog):
                     )
                     
                     await logs_channel.send(embed=embed)
-            except:
-                pass
+            except Exception as e:
+                print(f"Error logging cancellation: {e}")
         
         # Clean up match data
         if match_id in self.match_data:
