@@ -30,6 +30,110 @@ def cfg(key, default=None):
     return _load_config_json().get(key, default)
 
 # --- Views for Interactions ---
+class CaptainApprovalView(discord.ui.View):
+    def __init__(self, captain: discord.Member, manager: discord.Member, target_player: discord.Member, team: dict, action: str, cog):
+        super().__init__(timeout=300)  # 5-minute timeout
+        self.captain = captain
+        self.manager = manager
+        self.target_player = target_player
+        self.team = team
+        self.action = action  # "invite" or "kick"
+        self.cog = cog
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            await self.message.edit(content="This approval request has expired.", view=self)
+
+    @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.green)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.captain.id:
+            await interaction.response.send_message("Only the captain can approve this!", ephemeral=True)
+            return
+
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.response.defer()
+        
+        if self.action == "invite":
+            # Send invitation to player
+            try:
+                view = TeamInviteView(self.captain, self.target_player, self.team)
+                invite_message = await self.target_player.send(
+                    f"You have been invited to join `{self.team['name']}` by manager `{self.manager.display_name}` (approved by captain).",
+                    view=view
+                )
+                view.message = invite_message
+                
+                await interaction.message.edit(
+                    content=f"✅ Approved! Invitation sent to {self.target_player.mention}.",
+                    view=self
+                )
+                
+                # Notify manager
+                try:
+                    await self.manager.send(f"✅ Captain approved! Invitation sent to `{self.target_player.display_name}` to join `{self.team['name']}`.")
+                except:
+                    pass
+                    
+            except discord.Forbidden:
+                await interaction.message.edit(
+                    content=f"❌ Could not send DM to {self.target_player.mention}. They may have DMs disabled.",
+                    view=self
+                )
+                try:
+                    await self.manager.send(f"❌ Could not send invitation to `{self.target_player.display_name}`. They may have DMs disabled.")
+                except:
+                    pass
+                    
+        elif self.action == "kick":
+            # Kick player from team
+            await db.remove_team_member(self.team['id'], self.target_player.id)
+            
+            await interaction.message.edit(
+                content=f"✅ Approved! {self.target_player.mention} has been kicked from the team.",
+                view=self
+            )
+            
+            # Notify kicked player
+            try:
+                await self.target_player.send(f"You have been kicked from `{self.team['name']}` by manager `{self.manager.display_name}` (approved by captain).")
+            except:
+                pass
+                
+            # Notify manager
+            try:
+                await self.manager.send(f"✅ Captain approved! `{self.target_player.display_name}` has been kicked from `{self.team['name']}`.")
+            except:
+                pass
+
+    @discord.ui.button(label="❌ Deny", style=discord.ButtonStyle.red)
+    async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.captain.id:
+            await interaction.response.send_message("Only the captain can deny this!", ephemeral=True)
+            return
+
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        
+        action_text = "invitation" if self.action == "invite" else "kick request"
+        
+        await interaction.response.edit_message(
+            content=f"❌ Denied. The {action_text} for {self.target_player.mention} has been rejected.",
+            view=self
+        )
+        
+        # Notify manager
+        try:
+            await self.manager.send(f"❌ Captain denied your request to {self.action} `{self.target_player.display_name}` from `{self.team['name']}`.")
+        except:
+            pass
+
 class TeamInviteView(discord.ui.View):
     def __init__(self, captain: discord.Member, invited_player: discord.Member, team: dict):
         super().__init__(timeout=300)  # 5-minute timeout
@@ -318,21 +422,38 @@ class Teams(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="invite-player", description="Invite a player to your team")
+    @app_commands.command(name="invite-player", description="Invite a player to your team (Captain/Manager)")
     @app_commands.describe(player="The player to invite")
     async def invite_player(self, interaction: discord.Interaction, player: discord.Member):
-        """Invites a player to the captain's team."""
+        """Invites a player to the team. Managers need captain approval."""
         # Defer response immediately to avoid timeout
         await interaction.response.defer(ephemeral=True)
         
-        captain_id = interaction.user.id
+        user_id = interaction.user.id
 
-        # Get captain's team from database
-        captain_team = await db.get_team_by_captain(captain_id)
+        # Check if user is captain
+        captain_team = await db.get_team_by_captain(user_id)
         
+        # If not captain, check if manager
         if not captain_team:
-            await interaction.followup.send("You are not the captain of any team.", ephemeral=True)
-            return
+            team_staff = await db.get_team_staff_by_member(user_id)
+            if not team_staff:
+                await interaction.followup.send("You must be a captain or manager to invite players.", ephemeral=True)
+                return
+                
+            # User is a manager, get their team
+            manager_team = await db.get_team(team_staff['team_id'])
+            if not manager_team:
+                await interaction.followup.send("Could not find your team.", ephemeral=True)
+                return
+                
+            is_manager = True
+            team = manager_team
+            captain = await self.bot.fetch_user(manager_team['captain_id'])
+        else:
+            is_manager = False
+            team = captain_team
+            captain = interaction.user
 
         # Check if player is registered (using PostgreSQL)
         player_data = await db.get_player(player.id)
@@ -340,8 +461,8 @@ class Teams(commands.Cog):
             await interaction.followup.send(f"`{player.display_name}` is not a registered player. They must use `/register` first.", ephemeral=True)
             return
             
-        if player.id == captain_id:
-            await interaction.followup.send("You cannot invite yourself to your own team.", ephemeral=True)
+        if player.id == user_id:
+            await interaction.followup.send("You cannot invite yourself.", ephemeral=True)
             return
 
         # Check if player is already in a team
@@ -350,13 +471,37 @@ class Teams(commands.Cog):
             await interaction.followup.send(f"`{player.display_name}` is already in a team (`{player_team['name']}`).", ephemeral=True)
             return
 
-        try:
-            view = TeamInviteView(interaction.user, player, captain_team)
-            invite_message = await player.send(f"You have been invited to join `{captain_team['name']}` by `{interaction.user.display_name}`.", view=view)
-            view.message = invite_message
-            await interaction.followup.send(f"An invitation has been sent to `{player.display_name}`.", ephemeral=True)
-        except discord.Forbidden:
-            await interaction.followup.send(f"I could not send a DM to `{player.display_name}`. They may have DMs disabled.", ephemeral=True)
+        # If manager, request captain approval first
+        if is_manager:
+            try:
+                embed = discord.Embed(
+                    title="👔 Manager Invitation Request",
+                    description=f"Manager **{interaction.user.display_name}** wants to invite a player to the team.",
+                    color=0xFFA500
+                )
+                embed.add_field(name="Team", value=f"**{team['name']}** [{team['tag']}]", inline=False)
+                embed.add_field(name="Player to Invite", value=f"{player.mention} (`{player.display_name}`)", inline=False)
+                embed.add_field(name="Action Required", value="Click **✅ Approve** to send the invitation or **❌ Deny** to reject.", inline=False)
+                
+                view = CaptainApprovalView(captain, interaction.user, player, team, "invite", self)
+                approval_message = await captain.send(embed=embed, view=view)
+                view.message = approval_message
+                
+                await interaction.followup.send(
+                    f"⏳ Approval request sent to captain. Waiting for captain's approval to invite `{player.display_name}`.",
+                    ephemeral=True
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(f"❌ Could not send approval request to captain. They may have DMs disabled.", ephemeral=True)
+        else:
+            # Captain can invite directly
+            try:
+                view = TeamInviteView(interaction.user, player, team)
+                invite_message = await player.send(f"You have been invited to join `{team['name']}` by captain `{interaction.user.display_name}`.", view=view)
+                view.message = invite_message
+                await interaction.followup.send(f"An invitation has been sent to `{player.display_name}`.", ephemeral=True)
+            except discord.Forbidden:
+                await interaction.followup.send(f"I could not send a DM to `{player.display_name}`. They may have DMs disabled.", ephemeral=True)
 
     @app_commands.command(name="leave-team", description="Leave your current team")
     async def leave_team(self, interaction: discord.Interaction):
@@ -388,26 +533,50 @@ class Teams(commands.Cog):
         await interaction.response.send_message(f"You have successfully left `{player_team['name']}`.", ephemeral=True)
 
 
-    @app_commands.command(name="kick-player", description="Kick a player from your team (Captain only)")
+    @app_commands.command(name="kick-player", description="Kick a player from your team (Captain/Manager)")
     @app_commands.describe(player="The player to kick")
     async def kick_player(self, interaction: discord.Interaction, player: discord.Member):
-        """Allows a captain to kick a player from their team."""
-        captain_id = interaction.user.id
+        """Allows a captain or manager to kick a player from their team. Managers need captain approval."""
+        await interaction.response.defer(ephemeral=True)
+        
+        user_id = interaction.user.id
         player_to_kick_id = player.id
 
-        # Get captain's team from database
-        captain_team = await db.get_team_by_captain(captain_id)
+        # Check if user is captain
+        captain_team = await db.get_team_by_captain(user_id)
 
+        # If not captain, check if manager
         if not captain_team:
-            await interaction.response.send_message("You are not the captain of any team.", ephemeral=True)
+            team_staff = await db.get_team_staff_by_member(user_id)
+            if not team_staff:
+                await interaction.followup.send("You must be a captain or manager to kick players.", ephemeral=True)
+                return
+                
+            # User is a manager, get their team
+            manager_team = await db.get_team(team_staff['team_id'])
+            if not manager_team:
+                await interaction.followup.send("Could not find your team.", ephemeral=True)
+                return
+                
+            is_manager = True
+            team = manager_team
+            captain_user = await self.bot.fetch_user(manager_team['captain_id'])
+        else:
+            is_manager = False
+            team = captain_team
+            captain_user = interaction.user
+            
+        if user_id == player_to_kick_id:
+            await interaction.followup.send("You cannot kick yourself.", ephemeral=True)
             return
             
-        if captain_id == player_to_kick_id:
-            await interaction.response.send_message("You cannot kick yourself.", ephemeral=True)
+        # Check if trying to kick the captain
+        if player_to_kick_id == team['captain_id']:
+            await interaction.followup.send("You cannot kick the team captain.", ephemeral=True)
             return
 
         # Extract member IDs from member objects
-        members_data = captain_team.get('members', [])
+        members_data = team.get('members', [])
         if isinstance(members_data, str):
             import json
             members_data = json.loads(members_data)
@@ -416,19 +585,43 @@ class Teams(commands.Cog):
         
         # Check if player is in the team
         if player_to_kick_id not in team_member_ids:
-            await interaction.response.send_message(f"`{player.display_name}` is not in your team.", ephemeral=True)
+            await interaction.followup.send(f"`{player.display_name}` is not in your team.", ephemeral=True)
             return
 
-        # Kick player from team
-        await db.remove_team_member(captain_team['id'], player_to_kick_id)
+        # If manager, request captain approval first
+        if is_manager:
+            try:
+                embed = discord.Embed(
+                    title="👔 Manager Kick Request",
+                    description=f"Manager **{interaction.user.display_name}** wants to kick a player from the team.",
+                    color=0xFF0000
+                )
+                embed.add_field(name="Team", value=f"**{team['name']}** [{team['tag']}]", inline=False)
+                embed.add_field(name="Player to Kick", value=f"{player.mention} (`{player.display_name}`)", inline=False)
+                embed.add_field(name="Action Required", value="Click **✅ Approve** to kick this player or **❌ Deny** to reject.", inline=False)
+                
+                view = CaptainApprovalView(captain_user, interaction.user, player, team, "kick", self)
+                approval_message = await captain_user.send(embed=embed, view=view)
+                view.message = approval_message
+                
+                await interaction.followup.send(
+                    f"⏳ Approval request sent to captain. Waiting for captain's approval to kick `{player.display_name}`.",
+                    ephemeral=True
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(f"❌ Could not send approval request to captain. They may have DMs disabled.", ephemeral=True)
+        else:
+            # Captain can kick directly
+            # Kick player from team
+            await db.remove_team_member(team['id'], player_to_kick_id)
 
-        # Notify kicked player
-        try:
-            await player.send(f"You have been kicked from `{captain_team['name']}` by the captain.")
-        except discord.Forbidden:
-            pass # Can't send DM
+            # Notify kicked player
+            try:
+                await player.send(f"You have been kicked from `{team['name']}` by the captain.")
+            except discord.Forbidden:
+                pass # Can't send DM
 
-        await interaction.response.send_message(f"You have successfully kicked `{player.display_name}` from the team.", ephemeral=True)
+            await interaction.followup.send(f"You have successfully kicked `{player.display_name}` from the team.", ephemeral=True)
 
     @app_commands.command(name="disband", description="Disband your team (Captain only)")
     async def disband_team(self, interaction: discord.Interaction):

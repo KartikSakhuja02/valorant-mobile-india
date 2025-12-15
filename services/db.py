@@ -1624,3 +1624,18 @@ async def get_team_staff(team_id: int) -> Dict[str, Any]:
         
         return dict(staff)
 
+
+async def get_team_staff_by_member(discord_id: int) -> Dict[str, Any]:
+    """Get team_staff record if the discord_id is a manager or coach of any team."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        staff = await conn.fetchrow("""
+            SELECT team_id, coach_id, manager_1_id, manager_2_id
+            FROM team_staff
+            WHERE coach_id = $1 OR manager_1_id = $1 OR manager_2_id = $1
+        """, discord_id)
+        
+        if not staff:
+            return None
+        
+        return dict(staff)
